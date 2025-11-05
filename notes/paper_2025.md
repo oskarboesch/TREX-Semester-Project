@@ -72,3 +72,52 @@ TODO
 $$
 V_{in} = 1/3 *pi* L_{in}(R^2_{prox} + R_{prox}R_{dist} + R^2_{dist})
 $$
+
+
+## Statistics
+- Wilcoxon rank sum test for two groups
+- Kruskal-Wallis with bonferonni for more than 2 groups
+
+## Tip detection
+- segement the tip 
+- compare to ruler on the same image
+- if it doesn't work -> human intervention
+
+# Model
+- Curve fitting of the frce signal using contrained non-linear multivariable function optimisation
+- two different model are used for forward and backward
+- -> detect start and end from model parameters
+
+## Foward model
+- inspiration Fregonese and Bacca
+Steps : see paper
+
+![alt text](image.png)
+
+## Backward model
+- simple constant slope curve beyond the clot and another slope within the clot and a plateau after the detected start
+![alt text](image-1.png)
+
+## Length
+- length is calculated from end and start measurements
+
+# Results
+- 104 trials included
+- given 1mm/s 1 s. error is ~ 1m error
+- accuracy defined as +- 1.5s. or +- 1.5mm
+- Space
+    - Start detection
+        - 86.5% forward model
+        - 60.6% backward model
+    - End detection
+        - 69.2% forward
+        - 71.2% backward
+- Time
+    - Start detection
+        - 85% forward model
+        - 56.7% backward model
+
+
+- 1.71s. to fit forward
+- 0.76s. for backward
+- Length -> +- 3s. +- 3mm (76.9% forward, 69.2% backward)
