@@ -112,3 +112,8 @@ class BucklingModel:
             options=options
         )
         return res
+    
+    def evaluate_accuracy(self, all_params):
+        """ Evaluate accuracy from Start and End points """
+        # TODO: Implement evaluation logic if needed
+        pass
