@@ -30,7 +30,7 @@ class DoubleSlopeModel(BaseModel):
         for i, (l, u) in enumerate(zip(self.lb, self.ub)):
             if l > u:
                 print(f"Inconsistent bounds at index {i}: lb={l}, ub={u}")
-        self.x0 = (self.lb + self.ub) / 2
+        self.x0 = np.random.uniform(self.lb, self.ub)
 
         for i, (x0i, l, u) in enumerate(zip(self.x0, self.lb, self.ub)):
             if not (l <= x0i <= u):
