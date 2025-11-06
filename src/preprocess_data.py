@@ -124,3 +124,33 @@ def preprocess_logs(logs_fit, data_fit, data_fit_plot):
         data_fit_plot[i] = df_cropped
 
     print(f"Preprocessing time: {time.time() - start_time:.3f} s")
+
+
+def get_label_timeseries(labels, logs):
+    """
+    Compute a binary array for each time steps in logs indicating if in the clot or not based on labels.
+    Args:
+        labels (pd.DataFrame): DataFrame with marker Start and End times for each log
+        logs (list of pd.DataFrame): List of log DataFrames with 'timestamps' column
+
+    Returns:
+        list of pd.DataFrame: DataFrames indicating clot presence for each log at each time step
+    """
+    clot_timeseries = []
+
+    for i, log in enumerate(logs):
+        # Initialize binary array for this log
+        log_clot_timeseries = np.zeros(len(log))
+        # Get label times for this log
+        start_time = labels.loc[i, "Start"]
+        end_time = labels.loc[i, "End"]
+
+        # Set binary values for time steps within the clot
+        log_clot_timeseries[(log["timestamps"] >= start_time) & (log["timestamps"] <= end_time)] = 1
+
+        clot_timeseries.append(pd.DataFrame({
+            "timestamps": log["timestamps"],
+            "in_clot": log_clot_timeseries
+        }))
+
+    return clot_timeseries

@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 import re
 from datetime import datetime
+from scipy.io import loadmat
 
 def list_logs(path_data, dts_45=None):
     """
@@ -142,3 +143,31 @@ def load_data(logs, heads_keep=None, heads_rename=None, fss=None):
             print(f"Warning: DataFrame for log index {idx} is empty after loading.")
     
     return data
+
+def load_labels(logs):
+    """
+    Loads marker data for all logs as a list of dicts.
+    
+    Args:
+        logs (pd.DataFrame): Must contain a 'path_markers'
+    Returns:
+        labels (pd.DataFrame): DataFrame with marker Start and End times for each log
+    """
+    labels = []
+
+    for idx, row in logs.iterrows():
+        # Load marker data
+        # Only extract value for keys 'Start' and 'End'
+        mat = loadmat(row["path_markers"])
+        # Start position
+        start_pos = mat['Start'][0, 0] 
+
+        # End position
+        end_pos = mat['End'][0, 0]
+        label_dict = {
+            "Start": float(start_pos),
+            "End": float(end_pos)
+        }
+        labels.append(label_dict)
+
+    return pd.DataFrame(labels)
