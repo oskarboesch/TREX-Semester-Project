@@ -25,4 +25,4 @@ fi
 conda activate trex_env
 
 # Run the fitting script
-python src/fit.py
+python src/fit.py 

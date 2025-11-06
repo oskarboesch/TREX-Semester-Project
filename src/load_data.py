@@ -151,7 +151,7 @@ def load_labels(logs):
     Args:
         logs (pd.DataFrame): Must contain a 'path_markers'
     Returns:
-        labels (pd.DataFrame): DataFrame with marker Start and End times for each log
+        labels (list of pd.DataFrame): DataFrame with marker Start and End times for each log
     """
     labels = []
 
@@ -168,6 +168,6 @@ def load_labels(logs):
             "Start": float(start_pos),
             "End": float(end_pos)
         }
-        labels.append(label_dict)
+        labels.append(pd.DataFrame(label_dict, index=[idx]))
 
-    return pd.DataFrame(labels)
+    return labels

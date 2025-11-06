@@ -130,7 +130,7 @@ def get_label_timeseries(labels, logs):
     """
     Compute a binary array for each time steps in logs indicating if in the clot or not based on labels.
     Args:
-        labels (pd.DataFrame): DataFrame with marker Start and End times for each log
+        labels (list of pd.DataFrame): DataFrames with marker Start and End times for each log
         logs (list of pd.DataFrame): List of log DataFrames with 'timestamps' column
 
     Returns:
@@ -142,8 +142,8 @@ def get_label_timeseries(labels, logs):
         # Initialize binary array for this log
         log_clot_timeseries = np.zeros(len(log))
         # Get label times for this log
-        start_time = labels.loc[i, "Start"]
-        end_time = labels.loc[i, "End"]
+        start_time = labels[i]['Start'].values[0]
+        end_time = labels[i]['End'].values[0]
 
         # Set binary values for time steps within the clot
         log_clot_timeseries[(log["timestamps"] >= start_time) & (log["timestamps"] <= end_time)] = 1
