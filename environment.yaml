@@ -10,4 +10,7 @@ dependencies:
   - pandas
   - scikit-learn
   - pip
+  - tqdm
+  - wandb
+  - seaborn
   - pip:

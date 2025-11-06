@@ -9,6 +9,9 @@ __pycache__/
 # Data
 data/raw
 data/processed
+results/
+wandb/
+
 # Distribution / packaging
 .Python
 build/
