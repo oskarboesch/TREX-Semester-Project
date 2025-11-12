@@ -63,12 +63,38 @@ def crop_data(data: pd.DataFrame, timestamps: np.ndarray, margins: list) -> pd.D
     keep = (timestamps >= timestamps[0] + margins[0]) & (timestamps <= timestamps[-1] - margins[1])
     return data.loc[keep].reset_index(drop=True)
 
-def downsample(df, factor):
-    # Downsample every 'factor' points
-    df = df.copy()
-    return df.iloc[::factor, :].reset_index(drop=True)
+def downsample(df, f_s, f_target):
+    """
+    Downsample a DataFrame based on desired target sampling frequency.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data with timestamps column
+    f_s : float
+        Original sampling frequency (Hz)
+    f_target : float
+        Target sampling frequency (Hz)
 
-def preprocess_logs(logs_fit, data_fit, data_fit_plot):
+    Returns
+    -------
+    pd.DataFrame
+        Downsampled data
+    """
+    df = df.copy()
+    factor = int(round(f_s / f_target))
+    if factor <= 1:
+        return df.reset_index(drop=True)  # No downsampling
+
+    df_down = df.iloc[::factor, :].reset_index(drop=True)
+
+    # recompute timestamps for uniform spacing
+    dt = 1.0 / f_target
+    df_down["timestamps"] = np.arange(len(df_down)) * dt + df["timestamps"].iloc[0]
+
+    return df_down
+
+def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
     """
     Preprocess logs: filtering, cropping, downsampling, baseline correction.
     
@@ -125,6 +151,37 @@ def preprocess_logs(logs_fit, data_fit, data_fit_plot):
 
     print(f"Preprocessing time: {time.time() - start_time:.3f} s")
 
+def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10):
+    df = df.copy()
+    lowpass_cutoff = downsampling_freq / 2.0  # Nyquist frequency after downsampling
+    sos, _ = design_butter(sampling_rate, lowpass_cutoff, filter_order, 'low')
+    data = df[head].values
+    data = data - data[0]  # Remove initial value to avoid step
+    data = sosfiltfilt(sos, data)
+
+    # Crop bounds
+    if direction == "Forward":
+        range_crop = [5, 0]
+    else:
+        range_crop = [2, 0]
+    df_cropped = crop_data(df, df["timestamps"], range_crop)
+    # Downsample
+    df_down = downsample(df_cropped, sampling_rate, downsampling_freq)
+
+    # Baseline correction
+    baseline = df_down[head].iloc[0]
+    df_down[head] = df_down[head] - baseline
+    df_cropped[head] = df_cropped[head] - baseline
+
+    return df_down
+
+def preprocess_logs(df_list, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10):
+    processed_list = []
+    for df in df_list:
+        processed = preprocess_log(df, head, direction, sampling_rate, filter_order, downsampling_freq)
+        processed_list.append(processed)
+    return processed_list
+
 
 def get_label_timeseries(labels, logs):
     """
@@ -144,6 +201,11 @@ def get_label_timeseries(labels, logs):
         # Get label times for this log
         start_time = labels[i]['Start'].values[0]
         end_time = labels[i]['End'].values[0]
+
+        if start_time >= end_time:
+            start_time, end_time = end_time, start_time
+
+        
 
         # Set binary values for time steps within the clot
         log_clot_timeseries[(log["timestamps"] >= start_time) & (log["timestamps"] <= end_time)] = 1

@@ -8,8 +8,8 @@
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --output=logs/fit_%A_%a.out
-#SBATCH --error=logs/fit_%A_%a.err
+#SBATCH --output=logs/fit_gru_%A_%a.out
+#SBATCH --error=logs/fit_gru_%A_%a.err
 
 cd ~/TREX-Semester-Project
 
@@ -28,11 +28,11 @@ conda activate trex_env
 # Define arguments for each array job
 if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
     ARGS=""
-    echo "🚀 Running fit.py without arguments"
+    echo "🚀 Running fit_gru.py without arguments"
 elif [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
     ARGS="--forward"
-    echo "🚀 Running fit.py with --forward"
+    echo "🚀 Running fit_gru.py with --forward"
 fi
 
 # Run the script
-python src/fit.py $ARGS
+python src/fit_gru.py $ARGS
