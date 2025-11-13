@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 import wandb
-from load_data import load_data
+from data.load_data import load_data
 import numpy as np
 
 class GRUClassifier(nn.Module):

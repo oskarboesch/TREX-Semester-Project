@@ -1,8 +1,8 @@
-import numpy as np
 import torch
 from torch.utils.data import Dataset
-from load_data import load_data, load_labels
-from preprocess_data import preprocess_logs, get_label_timeseries
+from data.load_data import load_data, load_labels
+from data.preprocess_data import preprocess_logs, get_label_timeseries
+
 
 class SensorDataset(Dataset):
     def __init__(self, log_names, window_size=1, fss=568.5, mode='train', downsampling_freq=1):
@@ -53,3 +53,6 @@ class SensorDataset(Dataset):
     def __getitem__(self, idx):
         x, y = self.samples[idx]
         return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+
+
+

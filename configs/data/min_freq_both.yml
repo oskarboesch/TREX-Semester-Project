@@ -1,0 +1,4 @@
+direction: Both
+downsampling_freq: 1
+window_size: 50
+seed: 42

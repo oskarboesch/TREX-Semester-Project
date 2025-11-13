@@ -1,0 +1,4 @@
+direction: Backward
+downsampling_freq: 5
+window_size: 50
+seed: 42

@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=fit
-#SBATCH --array=0-1                 # Two jobs: 0 and 1
 #SBATCH --time=16:00:00
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
@@ -25,14 +24,24 @@ fi
 # Activate environment
 conda activate trex_env
 
-# Define arguments for each array job
-if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
-    ARGS=""
-    echo "🚀 Running fit_gru.py without arguments"
-elif [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
-    ARGS="--forward"
-    echo "🚀 Running fit_gru.py with --forward"
-fi
+# === Run all config combinations ===
+DATA_DIR=configs/data
+FIT_DIR=configs/fit
+MODEL_DIR=configs/model
 
-# Run the script
-python src/fit_gru.py $ARGS
+for data_cfg in "$DATA_DIR"/*.yml; do
+  for fit_cfg in "$FIT_DIR"/*.yml; do
+    for model_cfg in "$MODEL_DIR"/*.yml; do
+      echo "Running combination:"
+      echo "   data:  $data_cfg"
+      echo "   fit:   $fit_cfg"
+      echo "   model: $model_cfg"
+      echo ""
+
+      python src/fit_gru.py \
+        --data_config "$data_cfg" \
+        --fit_config "$fit_cfg" \
+        --model_config "$model_cfg"
+    done
+  done
+done

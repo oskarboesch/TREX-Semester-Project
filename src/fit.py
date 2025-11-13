@@ -2,12 +2,12 @@ import numpy as np
 import wandb
 from datetime import datetime
 from pathlib import Path
-from load_data import load_data, list_logs, load_labels
-from preprocess_data import preprocess_logs
+from data.load_data import load_data, list_logs, load_labels
+from data.preprocess_data import preprocess_logs
 from models.helpers import create_model_params
 from models.buckling_model import BucklingModel
 from models.double_slope_model import DoubleSlopeModel
-import config as config
+import data.paths as paths
 import argparse
 
 # ============================
@@ -26,7 +26,7 @@ RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 MODEL_NAME = "Buckling" if FORWARD else "DoubleSlope"
 DIRECTION = "Forward" if FORWARD else "Backward"
 
-config.ensure_directories()
+paths.ensure_directories()
 np.random.seed(SEED)
 
 # ============================
@@ -38,7 +38,7 @@ heads_rename = ["timestamps", "force_sensor_v"]
 f_s = 1000
 fss = 568.5
 
-log_names = list_logs(config.PAPER_EXPERIMENT_DATA_FOLDER)
+log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
 log_names.drop([7, 158, 174], inplace=True, errors='ignore')
 log_names.reset_index(drop=True, inplace=True)
 
@@ -59,7 +59,7 @@ model_params = create_model_params()
 # SETUP RESULTS DIRECTORY
 # ============================
 
-results_root = Path(config.RESULTS_FOLDER) / MODEL_NAME / RUN_ID
+results_root = Path(paths.RESULTS_FOLDER) / MODEL_NAME / RUN_ID
 results_root.mkdir(parents=True, exist_ok=True)
 
 # ============================

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # DATA PATHS
-BASEPATH = Path(__file__).parent.parent
+BASEPATH = Path(__file__).parent.parent.parent
 DATA_FOLDER = BASEPATH / "data/"
 RAW_DATA_FOLDER = DATA_FOLDER / "raw/"
 PROCESSED_DATA_FOLDER = DATA_FOLDER / "processed/"
@@ -10,6 +10,10 @@ RESULTS_FOLDER = BASEPATH / "results/"
 FIGURES_FOLDER = BASEPATH / "figures/"
 MODELS_FOLDER = BASEPATH / "models/"
 GRU_RESULTS_FOLDER = RESULTS_FOLDER / "gru_results/"
+CONFIG_FOLDER = BASEPATH / "configs/"
+DATA_CONFIG_FOLDER = CONFIG_FOLDER / "data/"
+FIT_CONFIG_FOLDER = CONFIG_FOLDER / "fit/"
+MODEL_CONFIG_FOLDER = CONFIG_FOLDER / "model/"
 
 
 def ensure_directories():
@@ -23,6 +27,7 @@ def ensure_directories():
         FIGURES_FOLDER,
         MODELS_FOLDER,
         GRU_RESULTS_FOLDER,
+        CONFIG_FOLDER
     ]:
         folder.mkdir(parents=True, exist_ok=True)
 
