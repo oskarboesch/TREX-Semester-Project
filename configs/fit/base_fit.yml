@@ -1,6 +1,7 @@
 batch_size: 32
 num_epochs: 500
 learning_rate: 0.001
+weight_decay: 0.0001
 threshold: 0.9
 test_size_ratio: 0.2
 log: true

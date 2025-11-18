@@ -1,4 +1,4 @@
 direction: Forward
 downsampling_freq: 5
-window_size: 50
+window_size: 10 # seconds
 seed: 42

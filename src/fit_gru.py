@@ -4,7 +4,7 @@ from datetime import datetime
 from data.load_data import list_logs
 import data.paths as paths
 import argparse
-from models.gru import GRUClassifier, train_gru_model, evaluate_gru_model
+from models.gru import GRUClassifier, CNN_GRUClassifier, train_gru_model, evaluate_gru_model
 import torch
 from data.sensor_dataset import SensorDataset
 from torch.utils.data import DataLoader
@@ -26,14 +26,6 @@ RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 torch_generator = set_seed(data_cfg["seed"])
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-# Ensure Window size < 30 * downsampling frequency (the recordings are usually at least 30 seconds long)
-if data_cfg["window_size"] >= 30 * data_cfg["downsampling_freq"]:
-    data_cfg["window_size"] = 30 * data_cfg["downsampling_freq"]
-    print(f"Adjusted window size to {data_cfg['window_size']} to be at least 30 times the downsampling frequency.")
-
-
-
 # Load Data
 log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
 log_names.drop([7, 158, 174], inplace=True, errors='ignore')
@@ -54,11 +46,14 @@ test_loader  = DataLoader(test_dataset, batch_size=1, shuffle=False, generator=t
 
 # Define model
 input_size = train_dataset[0][0].shape[1]  # number of sensor channels
-gru_model = GRUClassifier(input_size=input_size, hidden_size=model_cfg["hidden_size"], num_layers=model_cfg["num_layers"], output_size=1).to(device)
+if model_cfg.get("cnn_channels", None):
+    gru_model = CNN_GRUClassifier(input_size=input_size, hidden_size=model_cfg["hidden_size"], num_layers=model_cfg["num_layers"], output_size=1, cnn_channels=model_cfg["cnn_channels"], dropout=model_cfg["dropout"]).to(device)
+else:
+    gru_model = GRUClassifier(input_size=input_size, hidden_size=model_cfg["hidden_size"], num_layers=model_cfg["num_layers"], output_size=1, dropout=model_cfg["dropout"]).to(device)
 
 # Train 
 criterion = torch.nn.BCELoss()
-optimizer = torch.optim.Adam(gru_model.parameters(), lr=fit_cfg["learning_rate"])
+optimizer = torch.optim.Adam(gru_model.parameters(), lr=fit_cfg["learning_rate"], weight_decay=fit_cfg["weight_decay"])
 print(f"Fitting {data_cfg['direction']} gru model with {fit_cfg['num_epochs']} epochs on {device}...")
 
 # WandB Initialization

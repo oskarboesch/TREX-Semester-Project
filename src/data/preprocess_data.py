@@ -109,20 +109,15 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
 
     # Parameters
     f_s = 1000  # Sampling rate
-    n_downsample = round(f_s * 0.2)
     head = "force_sensor_mN"
-
-    # Design filter
-    sos, _ = design_butter(f_s, 10, 3, "low")
 
     # Start preprocessing
     start_time = time.time()
 
     for i, df in tqdm(enumerate(data_fit)):
+        df = reset_timestamps(df, fs=f_s)
         ydata = df[head].values
-        ydata = ydata - ydata[0]  # Remove initial value to avoid step
-        ydata = sosfiltfilt(sos, ydata)
-        df[head] = ydata
+        df[head] = filter(ydata, sampling_rate=f_s, filter_order=3, cutoff_freq=10)
         # Crop bounds
         direction = logs_fit.loc[i, "direction"].lower()
         if direction == "forward":
@@ -133,7 +128,7 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
         data_fit_plot[i] = df_cropped.copy()  # Not downsampled
 
         # Downsample
-        df_down = downsample(df_cropped, n_downsample)
+        df_down = downsample(df_cropped, f_s=f_s, f_target=5)
 
         # check if df_down is empty after cropping
         if df_down.empty:
@@ -152,12 +147,11 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
     print(f"Preprocessing time: {time.time() - start_time:.3f} s")
 
 def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10):
-    df = df.copy()
+    df = reset_timestamps(df, fs=sampling_rate)
     lowpass_cutoff = downsampling_freq / 2.0  # Nyquist frequency after downsampling
-    sos, _ = design_butter(sampling_rate, lowpass_cutoff, filter_order, 'low')
     data = df[head].values
-    data = data - data[0]  # Remove initial value to avoid step
-    data = sosfiltfilt(sos, data)
+    df[head] = filter(data, sampling_rate=sampling_rate, filter_order=filter_order, cutoff_freq=lowpass_cutoff)
+
 
     # Crop bounds
     if direction == "Forward":
@@ -174,6 +168,13 @@ def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, down
     df_cropped[head] = df_cropped[head] - baseline
 
     return df_down
+
+def filter(data, sampling_rate=1000, filter_order=3, cutoff_freq=10):
+    sos, _ = design_butter(sampling_rate, cutoff_freq, filter_order, 'low')
+    ydata = data - data[0]  # Remove initial value to avoid step
+    ydata = sosfiltfilt(sos, ydata)
+    return ydata
+
 
 def preprocess_logs(df_list, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10):
     processed_list = []
@@ -216,3 +217,24 @@ def get_label_timeseries(labels, logs):
         }))
 
     return clot_timeseries
+
+def reset_timestamps(df, fs=1000):
+    """
+    Reset timestamps in DataFrame to start from zero with uniform spacing based on sampling frequency.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame with 'timestamps' column
+    fs : float
+        Sampling frequency (Hz)
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with reset timestamps
+    """
+    df = df.copy()
+    dt = 1.0 / fs
+    df["timestamps"] = np.arange(len(df)) * dt
+    return df

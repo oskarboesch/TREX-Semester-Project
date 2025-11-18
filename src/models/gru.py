@@ -5,12 +5,12 @@ from data.load_data import load_data
 import numpy as np
 
 class GRUClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout=0.2):
         super(GRUClassifier, self).__init__()
         self.input_size = input_size
         self.num_layers = num_layers
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
         # x -> (batch_size, seq_length, input_size)
         self.fc = nn.Linear(hidden_size, output_size)
 
@@ -21,6 +21,39 @@ class GRUClassifier(nn.Module):
         out = self.fc(out)
         # out: tensor of shape (batch_size, output_size)
         return torch.sigmoid(out)
+    
+
+class CNN_GRUClassifier(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, cnn_channels=16, kernel_size=3, dropout=0.2):
+        super(CNN_GRUClassifier, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+
+        # CNN layer
+        self.conv1 = nn.Conv1d(in_channels=input_size, out_channels=cnn_channels, kernel_size=kernel_size, padding=kernel_size//2)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+
+        # GRU layer
+        self.gru = nn.GRU(input_size=cnn_channels, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, dropout=dropout)
+
+        # Fully connected output
+        self.fc = nn.Linear(hidden_size, output_size)
+        
+    def forward(self, x):
+        # x shape: (batch, seq_len, input_size)
+        x = x.permute(0, 2, 1)            # (batch, input_size, seq_len) for Conv1d
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = x.permute(0, 2, 1)            # (batch, seq_len, features) for GRU
+        x = self.dropout(x)
+        
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        out, _ = self.gru(x, h0)
+        out = self.fc(out)                # (batch, seq_len, output_size)
+        return torch.sigmoid(out)
+
     
 
 def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, device, downsampling_freq, threshold, log=False, test_loader=None):
@@ -76,7 +109,7 @@ def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq 
             loss += criterion(y_pred_logits, targets).item()
             if save_folder:
                 save_path = save_folder / f'eval_plot_{i+1}.png'
-                plot_eval(inputs.cpu().numpy().flatten(), y_true_np, y_pred_prob_np, save_path=save_path)
+                plot_eval(inputs.cpu().numpy().flatten(), y_true_np, y_pred_prob_np, downsampling_freq, save_path=save_path)
             
             pred_start_time = np.where(np.diff(y_pred_np)==1)[0] + 1
             pred_end_time = np.where(np.diff(y_pred_np)==-1)[0] + 1
@@ -91,19 +124,20 @@ def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq 
     recall = recall_score(all_targets, all_outputs)
     f1 = f1_score(all_targets, all_outputs)
     print(f'Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}')
-    return loss, accuracy, precision, recall, f1, start_accuracies, end_accuracies
+    return loss/len(test_loader), accuracy, precision, recall, f1, start_accuracies, end_accuracies
             
 
 
-def plot_eval(inputs, targets, outputs, save_path):
+def plot_eval(inputs, targets, outputs, downsampling_freq, save_path):
     import matplotlib.pyplot as plt
     plt.figure(figsize=(12, 6))
-    plt.plot(inputs, label='Input Signal', alpha=0.5)
-    plt.plot(targets, label='True Labels', alpha=0.7)
-    plt.plot(outputs, label='Predicted Labels', alpha=0.7)
+    timesteps = np.arange(len(inputs)) * downsampling_freq
+    plt.plot(timesteps, inputs, label='Sensor Input Normalized', alpha=0.5)
+    plt.plot(timesteps, targets, label='True Labels', alpha=0.7)
+    plt.plot(timesteps, outputs, label='Predicted Labels', alpha=0.7)
     plt.legend()
     plt.title('GRU Model Evaluation')
-    plt.xlabel('Time Steps')
+    plt.xlabel('Time (s)')
     plt.ylabel('In Clot Probability')
     plt.savefig(save_path)
 

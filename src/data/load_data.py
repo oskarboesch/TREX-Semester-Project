@@ -171,3 +171,4 @@ def load_labels(logs):
         labels.append(pd.DataFrame(label_dict, index=[idx]))
 
     return labels
+
