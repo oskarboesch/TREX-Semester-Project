@@ -10,38 +10,43 @@
 #SBATCH --output=logs/fit_gru_%A_%a.out
 #SBATCH --error=logs/fit_gru_%A_%a.err
 
+# ============================
+#    Argument Parsing
+# ============================
+DATA_CFG=$1
+FIT_CFG=$2
+MODEL_CFG=$3
+
+if [ -z "$DATA_CFG" ] || [ -z "$FIT_CFG" ] || [ -z "$MODEL_CFG" ]; then
+    echo "❌ Error: Missing arguments."
+    echo "Usage: sbatch fit.sh <data_config.yml> <fit_config.yml> <model_config.yml>"
+    exit 1
+fi
+
+echo "Running with:"
+echo "   data:  $DATA_CFG"
+echo "   fit:   $FIT_CFG"
+echo "   model: $MODEL_CFG"
+echo ""
+
+# ============================
+#    Environment Setup
+# ============================
 cd ~/TREX-Semester-Project
 
-# Load modules or activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
 
-# Check if environment exists
 if ! conda env list | grep -q "^trex_env"; then
-    echo "⚙️  Environment 'trex_env' not found — creating it from environment.yml..."
+    echo "⚙️  Environment 'trex_env' not found — creating it..."
     conda env create -f environment.yaml -n trex_env
 fi
 
-# Activate environment
 conda activate trex_env
 
-# === Run all config combinations ===
-DATA_DIR=configs/data
-FIT_DIR=configs/fit
-MODEL_DIR=configs/model
-
-for data_cfg in "$DATA_DIR"/*.yml; do
-  for fit_cfg in "$FIT_DIR"/*.yml; do
-    for model_cfg in "$MODEL_DIR"/*.yml; do
-      echo "Running combination:"
-      echo "   data:  $data_cfg"
-      echo "   fit:   $fit_cfg"
-      echo "   model: $model_cfg"
-      echo ""
-
-      python src/fit_gru.py \
-        --data_config "$data_cfg" \
-        --fit_config "$fit_cfg" \
-        --model_config "$model_cfg"
-    done
-  done
-done
+# ============================
+#    Run training
+# ============================
+python src/fit_gru.py \
+    --data_config "$DATA_CFG" \
+    --fit_config "$FIT_CFG" \
+    --model_config "$MODEL_CFG"

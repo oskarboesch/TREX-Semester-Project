@@ -15,9 +15,9 @@ paths.ensure_directories()
 
 
 argparser = argparse.ArgumentParser(description="Fit models to experimental data.")
-argparser.add_argument("--data_config", type=str, default=paths.DATA_CONFIG_FOLDER / "base_forward.yml", help="Path to data configuration file")
-argparser.add_argument("--fit_config", type=str, default=paths.FIT_CONFIG_FOLDER / "base_fit.yml", help="Path to fit configuration file")
-argparser.add_argument("--model_config", type=str, default=paths.MODEL_CONFIG_FOLDER / "base_model.yml", help="Path to model configuration file")
+argparser.add_argument("--data_config", type=str, required=True, help="Path to data configuration file")
+argparser.add_argument("--fit_config", type=str, required=True, help="Path to fit configuration file")
+argparser.add_argument("--model_config", type=str, required=True, help="Path to model configuration file")
 args = argparser.parse_args()
 
 data_cfg, fit_cfg, model_cfg = load_config(args.data_config, args.fit_config, args.model_config)
