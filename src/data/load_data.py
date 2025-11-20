@@ -175,42 +175,57 @@ def load_labels(logs):
     return labels
 
 
-def load_and_preprocess(log):
+def load_and_preprocess(log, max_frames=200, threshold=0.1):
     """
     log: pd.DataFrame row with 'path' to the log folder
     Returns:
         - cam1_tensor: torch.Tensor[N, C, H, W]
         - cam2_tensor: torch.Tensor[N, C, H, W]
     """
+    folder = Path(log["path"]).parent
+
+    # --- Load calibration images RGB ---
+    calib1_rgb = cv2.imread(str(folder / "calibration_image.jpg"), cv2.IMREAD_COLOR).astype(np.float32) / 255.0
+    calib2_rgb = cv2.imread(str(folder / "calibration_imageII.jpg"), cv2.IMREAD_COLOR).astype(np.float32) / 255.0
+
+
+    # plot calibration images
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10,5))
+    plt.subplot(1,2,1)
+    plt.title("Calibration Image Camera 1")
+    # show the images with matplotlib
+    plt.imshow(calib1_rgb[...,::-1])  # Convert BGR to RGB
+    plt.axis('off')
+    plt.subplot(1,2,2)
+    plt.title("Calibration Image Camera 2")
+    plt.imshow(calib2_rgb[...,::-1])  # Convert BGR to RGB
+    plt.axis('off')
+    plt.show()
 
     # --- Load calibration images ---
-    folder = Path(log["path"]).parent
-    calib1 = cv2.imread(str(folder / "calibration_image.jpg"), cv2.IMREAD_GRAYSCALE)
-    calib2 = cv2.imread(str(folder / "calibration_imageII.jpg"), cv2.IMREAD_GRAYSCALE)
-
-    calib1 = calib1.astype(np.float32) / 255.0
-    calib2 = calib2.astype(np.float32) / 255.0
+    calib1 = cv2.imread(str(folder / "calibration_image.jpg"), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+    calib2 = cv2.imread(str(folder / "calibration_imageII.jpg"), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
 
     # --- Load frame lists ---
-    cam1_paths = sorted(folder.glob("frameID_*.jpg"))
-    cam2_paths = sorted(folder.glob("II_frameID_*.jpg"))
+    cam1_paths = sorted(folder.glob("frameID_*.jpg"))[:max_frames]
+    cam2_paths = sorted(folder.glob("II_frameID_*.jpg"))[:max_frames]
 
-    cam1_imgs = []
-    cam2_imgs = []
+    # Preallocate arrays
+    cam1_imgs = np.stack([
+        (cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0 - calib1) > threshold
+        for p in cam1_paths
+    ]).astype(np.float32)
 
-    for p in cam1_paths:
-        img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
-        img = img - calib1     # subtract calibration image
-        cam1_imgs.append(img)
+    cam2_imgs = np.stack([
+        (cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0 - calib2) > threshold
+        for p in cam2_paths
+    ]).astype(np.float32)
 
-    for p in cam2_paths:
-        img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
-        img = img - calib2
-        cam2_imgs.append(img)
+    # Convert to tensors: [N, C, H, W]
+    cam1_tensor = torch.from_numpy(cam1_imgs).unsqueeze(1)
+    cam2_tensor = torch.from_numpy(cam2_imgs).unsqueeze(1)
 
-    # Convert to tensors for CNNs: [N, C, H, W]
-    cam1_tensor = torch.tensor(cam1_imgs).unsqueeze(1)   # add channel dim
-    cam2_tensor = torch.tensor(cam2_imgs).unsqueeze(1)
 
     return cam1_tensor, cam2_tensor
 

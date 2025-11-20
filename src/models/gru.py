@@ -74,6 +74,7 @@ def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, devic
             if test_loader is not None:
                 val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, threshold=threshold)
                 wandb.log({
+                    "epoch": epoch+1,
                     "val_loss": val_loss,
                     "val_accuracy": val_acc,
                     "val_precision": val_prec,

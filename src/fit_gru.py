@@ -28,8 +28,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load Data
 log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
-log_names.drop([7, 158, 174], inplace=True, errors='ignore')
-log_names.reset_index(drop=True, inplace=True)
 if data_cfg["direction"] != "Both":
     log_names = log_names[log_names["direction"] == data_cfg["direction"]].reset_index(drop=True)
 print(f"Total logs for {data_cfg['direction']} direction: {len(log_names)}")
