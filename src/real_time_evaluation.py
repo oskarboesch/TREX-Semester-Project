@@ -19,7 +19,8 @@ def ensure_src_in_path():
 
 ensure_src_in_path()
 
-from data.load_data import load_data, preprocess_log
+from data.load_data import load_data
+from data.preprocess_data import preprocess_log
 from models.gru import GRUClassifier, CNN_GRUClassifier
 
 
