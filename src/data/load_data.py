@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 from datetime import datetime
 from scipy.io import loadmat
+import cv2
+import torch
 
 def list_logs(path_data, dts_45=None):
     """
@@ -171,4 +173,45 @@ def load_labels(logs):
         labels.append(pd.DataFrame(label_dict, index=[idx]))
 
     return labels
+
+
+def load_and_preprocess(log):
+    """
+    log: pd.DataFrame row with 'path' to the log folder
+    Returns:
+        - cam1_tensor: torch.Tensor[N, C, H, W]
+        - cam2_tensor: torch.Tensor[N, C, H, W]
+    """
+
+    # --- Load calibration images ---
+    folder = Path(log["path"]).parent
+    calib1 = cv2.imread(str(folder / "calibration_image.jpg"), cv2.IMREAD_GRAYSCALE)
+    calib2 = cv2.imread(str(folder / "calibration_imageII.jpg"), cv2.IMREAD_GRAYSCALE)
+
+    calib1 = calib1.astype(np.float32) / 255.0
+    calib2 = calib2.astype(np.float32) / 255.0
+
+    # --- Load frame lists ---
+    cam1_paths = sorted(folder.glob("frameID_*.jpg"))
+    cam2_paths = sorted(folder.glob("II_frameID_*.jpg"))
+
+    cam1_imgs = []
+    cam2_imgs = []
+
+    for p in cam1_paths:
+        img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+        img = img - calib1     # subtract calibration image
+        cam1_imgs.append(img)
+
+    for p in cam2_paths:
+        img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+        img = img - calib2
+        cam2_imgs.append(img)
+
+    # Convert to tensors for CNNs: [N, C, H, W]
+    cam1_tensor = torch.tensor(cam1_imgs).unsqueeze(1)   # add channel dim
+    cam2_tensor = torch.tensor(cam2_imgs).unsqueeze(1)
+
+    return cam1_tensor, cam2_tensor
+
 

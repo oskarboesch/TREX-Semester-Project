@@ -6,7 +6,7 @@ import numpy as np
 
 
 class SensorDataset(Dataset):
-    def __init__(self, log_names, window_size=1, fss=568.5, mode='train', downsampling_freq=1, with_image=False, with_augmentation=True):
+    def __init__(self, log_names, window_size=1, fss=568.5, mode='train', downsampling_freq=1, with_image=False, with_augmentation=True, mean_force=None, std_force=None):
         """
         mode: 'train' -> sliding windows
               'eval'  -> full curve
@@ -28,15 +28,18 @@ class SensorDataset(Dataset):
         label_timeseries = get_label_timeseries(labels, data_fit)
 
         self.samples = []
-
-        mean_force = np.mean([df['force_sensor_mN'].mean() for df in data_fit])
-        std_force = np.mean([df['force_sensor_mN'].std() for df in data_fit])
+        if mean_force is not None and std_force is not None:
+            self.mean_force = mean_force
+            self.std_force = std_force
+        else:
+            self.mean_force = np.mean([df['force_sensor_mN'].mean() for df in data_fit])
+            self.std_force = np.mean([df['force_sensor_mN'].std() for df in data_fit])
 
         for df, label in zip(data_fit, label_timeseries):
             forces = df[['force_sensor_mN']].values  # pick your sensor columns
             label = label['in_clot'].values          # binary sequence
             # Normalize forces
-            forces = (forces - mean_force) / std_force
+            forces = (forces - self.mean_force) / self.std_force
 
 
             if mode == 'train':

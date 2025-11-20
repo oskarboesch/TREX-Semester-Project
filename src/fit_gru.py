@@ -39,7 +39,7 @@ train_log_names = train_log_names.reset_index(drop=True)
 test_log_names = test_log_names.reset_index(drop=True)
 print(f"Training logs: {len(train_log_names)}, Testing logs: {len(test_log_names)}")
 train_dataset = SensorDataset(train_log_names, window_size=data_cfg["window_size"], mode='train', downsampling_freq=data_cfg["downsampling_freq"])
-test_dataset  = SensorDataset(test_log_names,  window_size=data_cfg["window_size"], mode='eval', downsampling_freq=data_cfg["downsampling_freq"])
+test_dataset  = SensorDataset(test_log_names,  window_size=data_cfg["window_size"], mode='eval', downsampling_freq=data_cfg["downsampling_freq"], mean_force=train_dataset.mean_force, std_force=train_dataset.std_force)
 
 train_loader = DataLoader(train_dataset, batch_size=fit_cfg["batch_size"], shuffle=True, generator=torch_generator)
 test_loader  = DataLoader(test_dataset, batch_size=1, shuffle=False, generator=torch_generator)
