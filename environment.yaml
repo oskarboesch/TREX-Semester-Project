@@ -13,4 +13,6 @@ dependencies:
   - tqdm
   - wandb
   - seaborn
+  - torch
+  - opencv-python
   - pip:

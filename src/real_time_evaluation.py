@@ -6,7 +6,15 @@ import yaml
 import torch
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+
+from data.load_data import list_logs
+import data.paths as paths
+from data.sensor_dataset import SensorDataset
+from sklearn.model_selection import train_test_split
+paths.ensure_directories()
 
 
 def ensure_src_in_path():
@@ -19,7 +27,8 @@ def ensure_src_in_path():
 
 ensure_src_in_path()
 
-from data.load_data import load_data, preprocess_log
+from data.load_data import load_data, load_labels
+from data.preprocess_data import preprocess_log, get_label_timeseries
 from models.gru import GRUClassifier, CNN_GRUClassifier
 
 
@@ -138,30 +147,23 @@ def load_model_for_run(run_id: str, device="cpu"):
     return model, config
 
 
-def get_processed_log_df(log_path: str, downsampling_freq: int, direction: str = None):
-    # load single log CSV into DataFrame and preprocess using existing helper
-    logs_df = pd.DataFrame([{"path": str(log_path), "path_markers": str(Path(log_path).parent / "markers.mat"), "direction": direction if direction is not None else "Forward"}])
-    df_list = load_data(logs_df, heads_keep=["timestamp [s]", "Force sensor voltage [V]"], heads_rename=["timestamps", "force_sensor_v"], fss=None)
-    # preprocess_log expects DataFrame and head name
-    df_down = preprocess_log(df_list[0], head="force_sensor_mN" if "force_sensor_mN" in df_list[0].columns else "force_sensor_v", direction=logs_df.loc[0, "direction"], downsampling_freq=downsampling_freq)
-    return df_down
 
-
-def get_window(df_down: pd.DataFrame, time_s: float, window_seconds: float, downsampling_freq: int, mean_force=None, std_force=None):
+def get_window(df_down: pd.DataFrame, time_s: float, window_seconds: float, downsampling_freq: int, window_size_0: float):
     # df_down expected to have 'timestamps' and 'force_sensor_mN' or 'force_sensor_v'
     head = "force_sensor_mN" if "force_sensor_mN" in df_down.columns else "force_sensor_v"
     timestamps = df_down["timestamps"].values
     values = df_down[head].values
 
     # desired window: (time_s - window_seconds, time_s]
-    start_t = time_s - window_seconds + (1.0 / downsampling_freq)
+    start_t = time_s - window_size_0 + (1.0 / downsampling_freq)
+    end_t = start_t + window_seconds
     if start_t < timestamps[0]:
         # pad at left with first value
         pad_count = int(round((timestamps[0] - start_t) * downsampling_freq))
     else:
         pad_count = 0
 
-    keep_mask = (timestamps >= start_t) & (timestamps <= time_s)
+    keep_mask = (timestamps >= start_t) & (timestamps <= end_t)
     window_vals = values[keep_mask]
 
     if pad_count > 0:
@@ -176,48 +178,47 @@ def get_window(df_down: pd.DataFrame, time_s: float, window_seconds: float, down
     elif len(window_vals) > expected_len:
         window_vals = window_vals[-expected_len:]
 
-    # normalize
-    if mean_force is None or std_force is None:
-        mean_force = window_vals.mean()
-        std_force = window_vals.std() if window_vals.std() > 0 else 1.0
-
-    window_norm = (window_vals - mean_force) / std_force
     # shape -> (seq_len, 1)
-    return window_norm.reshape(-1, 1), timestamps[keep_mask][-expected_len:] if np.any(keep_mask) else None
+    return window_vals.reshape(-1, 1), timestamps[keep_mask][-expected_len:] if np.any(keep_mask) else None
 
 
-def stream_predict_plot(model, df_down: pd.DataFrame, config: dict, device="cpu", sim_rate=10.0):
+def stream_predict_plot(model, df_down: pd.DataFrame, config: dict, device="cpu", sim_rate=10.0, label_timeseries=None, save_path=None):
     # config expects downsampling_freq and window_size
     downsampling_freq = int(config.get("downsampling_freq", 5))
     window_size = float(config.get("window_size", 10.0))
 
     timestamps = df_down["timestamps"].values
-    head = "force_sensor_mN" if "force_sensor_mN" in df_down.columns else "force_sensor_v"
-    values = df_down[head].values
-
-    seq_len = int(round(window_size * downsampling_freq))
 
     plt.ion()
     fig, ax = plt.subplots(figsize=(10, 4))
     line_force, = ax.plot([], [], label="force")
     line_pred, = ax.plot([], [], label="pred_prob")
-    vline = ax.axvline(0, color='k', linestyle='--')
-    ax.set_ylim(values.min() - abs(values.min())*0.1, values.max() + abs(values.max())*0.1)
+    if label_timeseries is not None:
+        line_true, = ax.plot([], [], label="true_label", color='g', alpha=0.5)
+    line_pred_thresh, = ax.plot([], [], label="true_label_thresh", color='r', linestyle='--')
+    ax.set_ylim(-4, 4)
     ax.legend()
+    # add x and y labels
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Normalized Force / Prediction")
 
     start_time = timestamps[0]
     end_time = timestamps[-1]
 
     # simulate time steps at sim_rate Hz (sim_rate steps per second of real time)
     step_s = 1.0 / downsampling_freq
-    sim_step = step_s  # advance by one sample per iteration by default
 
-    t = start_time + window_size
+    window_size_0 = window_size
+
+    t0 = start_time + window_size
+    t = t0.copy()
+
     while t <= end_time:
-        window, win_timestamps = get_window(df_down, t, window_size, downsampling_freq)
+        window, win_timestamps = get_window(df_down, t0, window_size, downsampling_freq, window_size_0)
         if window is None:
-            t += sim_step
+            window_size += step_s 
             continue
+        seq_len = int(round(window_size * downsampling_freq))
 
         x = torch.tensor(window.astype(np.float32)).unsqueeze(0).to(device)  # (1, seq_len, input_size)
         with torch.no_grad():
@@ -227,20 +228,36 @@ def stream_predict_plot(model, df_down: pd.DataFrame, config: dict, device="cpu"
             out_np = out_np[:, 0]
 
         # update plot to show last window
-        times_plot = np.linspace(t - window_size + (1.0 / downsampling_freq), t, seq_len)
+        t = t + step_s
+        times_plot = np.linspace(t0 - window_size_0 + (1.0 / downsampling_freq), t, seq_len)
         line_force.set_data(times_plot, window.flatten())
         line_pred.set_data(times_plot, out_np)
-        ax.set_xlim(times_plot[0], times_plot[-1])
-        vline.set_xdata([t])
+        if label_timeseries is not None:
+            # get true labels for this window
+            true_labels_window = []
+            for ts in times_plot:
+                # find closest timestamp in label_timeseries
+                idx = np.searchsorted(label_timeseries['timestamps'].values, ts)
+                if idx >= len(label_timeseries):
+                    idx = len(label_timeseries) - 1
+                true_labels_window.append(label_timeseries['in_clot'].values[idx])
+            line_true.set_data(times_plot, true_labels_window)
+        pred_binary = (np.array(out_np) >= 0.9).astype(float)
+        line_pred_thresh.set_data(times_plot, pred_binary)
+        ax.set_xlim(start_time, timestamps.max())
         ax.relim()
         ax.autoscale_view()
         fig.canvas.draw()
         fig.canvas.flush_events()
 
         time.sleep(1.0 / sim_rate)
-        t += sim_step
+        window_size += step_s 
 
     plt.ioff()
+
+    # save final figure
+    if save_path is not None:
+        fig.savefig(save_path)
 
 
 def predict_at_time(model, df_down: pd.DataFrame, config: dict, time_s: float, device="cpu"):
@@ -257,7 +274,6 @@ def predict_at_time(model, df_down: pd.DataFrame, config: dict, time_s: float, d
 def main():
     parser = argparse.ArgumentParser(description="Real-time evaluation of GRU/CNN-GRU models on curve data")
     parser.add_argument("run_id", help="Run id (folder name under results) or timestamp used in model filenames")
-    parser.add_argument("log_path", help="Path to a CSV log to simulate (single file)")
     parser.add_argument("--mode", choices=["stream", "at"], default="stream")
     parser.add_argument("--time", type=float, default=0.0, help="Time in seconds to evaluate when mode=='at'")
     parser.add_argument("--device", default="cpu")
@@ -268,10 +284,44 @@ def main():
     model, config = load_model_for_run(args.run_id, device=device)
 
     downsampling_freq = int(config.get("downsampling_freq", 5))
-    df_down = get_processed_log_df(args.log_path, downsampling_freq, direction=None)
+
+    # Load train data to obtain mean/std if needed
+    # Load Data
+    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
+
+    if config["direction"] != "Both":
+        log_names = log_names[log_names["direction"] == config["direction"]].reset_index(drop=True)
+
+    train_log_names, test_log_names = train_test_split(log_names, test_size=config["test_size_ratio"], random_state=config["seed"])
+    train_log_names = train_log_names.reset_index(drop=True)
+    test_log_names = test_log_names.reset_index(drop=True)
+    train_dataset = SensorDataset(train_log_names, window_size=config["window_size"], mode='train', downsampling_freq=config["downsampling_freq"])
+
+    # reconstruct df_down
+    # need timestamps
+    heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
+    heads_rename = ["timestamps", "force_sensor_v"]
+    fss = 568.5
+    df = load_data(test_log_names, heads_keep, heads_rename, fss)[0]
+    direction = test_log_names.iloc[0]["direction"]
+    df_preprocessed = preprocess_log(df, head='force_sensor_mN', downsampling_freq=downsampling_freq, direction=direction)
+    df_down = df_preprocessed
+    df_down['force_sensor_mN'] = (df_down['force_sensor_mN'] - train_dataset.mean_force) / train_dataset.std_force 
+    true_label = load_labels(test_log_names)[0]
+    label_timeseries = get_label_timeseries([true_label], [df_preprocessed])[0]
+
+    # save path 
+    base = Path.cwd() / "results"
+    # search recursively for a folder that matches run_id
+    matches = list((base).rglob(args.run_id))
+    save_path = None
+    for m in matches:
+        if m.is_dir():
+            save_path = m / f"real_time_eval.png"
+            break
 
     if args.mode == "stream":
-        stream_predict_plot(model, df_down, config, device=device, sim_rate=args.sim_rate)
+        stream_predict_plot(model, df_down, config, device=device, sim_rate=args.sim_rate, label_timeseries=label_timeseries, save_path=save_path)
     else:
         window_vals, out_np, win_timestamps = predict_at_time(model, df_down, config, args.time, device=device)
         # simple plot
