@@ -58,7 +58,7 @@ print(f"Fitting {data_cfg['direction']} gru model with {fit_cfg['num_epochs']} e
 if fit_cfg.get("log", False):
     wandb.init(project="gru_model_fitting", name="GRU_Fit_" + RUN_ID)
     wandb.config.update({**data_cfg, **fit_cfg, **model_cfg})
-train_gru_model(gru_model, train_loader, criterion, optimizer, fit_cfg["num_epochs"], device, downsampling_freq=data_cfg["downsampling_freq"], threshold=fit_cfg["threshold"], log=fit_cfg.get("log", False), test_loader=test_loader)
+train_gru_model(gru_model, train_loader, criterion, optimizer, fit_cfg["num_epochs"], device, downsampling_freq=data_cfg["downsampling_freq"], window_size=data_cfg["window_size"], threshold=fit_cfg["threshold"], log=fit_cfg.get("log", False), test_loader=test_loader)
 
 # save model
 model_save_path = paths.MODELS_FOLDER / f"gru_{data_cfg['direction'].lower()}_model_{RUN_ID}.pt"
@@ -69,7 +69,7 @@ print(f"Model saved to {model_save_path}")
 print("Evaluating model on test set...")
 save_folder = paths.GRU_RESULTS_FOLDER /  RUN_ID 
 save_folder.mkdir(parents=True, exist_ok=True)
-val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(gru_model, test_loader, device, criterion, data_cfg["downsampling_freq"], save_folder=save_folder, threshold=fit_cfg["threshold"])
+val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(gru_model, test_loader, device, criterion, data_cfg["downsampling_freq"], window_size=data_cfg["window_size"], save_folder=save_folder, threshold=fit_cfg["threshold"])
 print(f"Test Set - Loss: {val_loss:.4f}, Accuracy: {val_acc:.4f}, Precision: {val_prec:.4f}, Recall: {val_rec:.4f}, F1 Score: {val_f1:.4f}, Start Accuracy: {np.mean(start_accuracies):.4f}, End Accuracy: {np.mean(end_accuracies):.4f}")
 
 # save a complete config used for this run

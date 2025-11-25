@@ -158,9 +158,12 @@ def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, down
         range_crop = [5, 0]
     else:
         range_crop = [2, 0]
+    print(df['timestamps'])
     df_cropped = crop_data(df, df["timestamps"], range_crop)
+    print(df_cropped['timestamps'])
     # Downsample
     df_down = downsample(df_cropped, sampling_rate, downsampling_freq)
+    print(df_down['timestamps'])
 
     # Baseline correction
     baseline = df_down[head].iloc[0]

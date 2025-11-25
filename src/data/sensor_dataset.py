@@ -43,9 +43,9 @@ class SensorDataset(Dataset):
 
 
             if mode == 'train':
-                for i in range(len(forces) - window_size):
-                    x = forces[i:i+window_size].copy()
-                    y = label[i:i+window_size].reshape(-1,1)
+                for i in range(len(forces) - self.window_size):
+                    x = forces[i:i+self.window_size].copy()
+                    y = label[i+self.window_size].copy()
 
                     # Original window
                     self.samples.append((x, y))
@@ -72,4 +72,7 @@ class SensorDataset(Dataset):
 
     def __getitem__(self, idx):
         x, y = self.samples[idx]
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+        if self.mode == 'train':
+            return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32).unsqueeze(0)
+        else:
+            return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
