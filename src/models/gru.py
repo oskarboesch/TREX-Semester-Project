@@ -1,85 +1,88 @@
 from torch import nn
 import torch
 import wandb
-from data.load_data import load_data
 import numpy as np
 import sys
+import torch.nn.functional as F
+
 
 
 class GRUClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout=0.2):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout=0.2, with_images=False, emb_dim=1):
         super(GRUClassifier, self).__init__()
         self.input_size = input_size
         self.num_layers = num_layers
         self.hidden_size = hidden_size
+        self.with_images = with_images
+        if self.with_images:
+            self.mask_encoder = MaskEncoder(in_channels=2, emb_dim=emb_dim)
+            input_size += emb_dim  # increase input size by embedding dimension
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
         # x -> (batch_size, seq_length, input_size)
         self.fc = nn.Linear(hidden_size, output_size)
 
-    def forward(self, x, debug=False, h=None):
-        if debug:
-            print(f"Input shape: {x.shape}, (Bacth size: {x.size(0)}, Sequence length: {x.size(1)}, Input size: {x.size(2)})")
+    def forward(self, x, mask=None, h=None):
+        if mask is not None and mask.numel() > 0:
+            # Encode masks frame-by-frame
+            # Expected mask shape: (B, T, C, H, W)
+            B, T, C, H, W = mask.shape
+
+            mask = mask.view(B*T, C, H, W)      # merge batch + time
+            mask_emb = self.mask_encoder(mask)  # → (B*T, 8)
+            mask_emb = mask_emb.view(B, T, -1)  # → (B, T, 8)
+
+            if x.numel() == 0:
+                x = mask_emb
+            else :  
+                x = torch.cat([x, mask_emb], dim=-1)
+        else :
+            if x.numel() == 0:
+                raise ValueError("Either x or mask must be provided")
         if h is not None:
             h0 = h
         else:
             h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        if debug:
-            print(f"hidden state shape: {h0.shape}, (Number of layers: {self.num_layers}, Batch size: {x.size(0)}, Hidden size: {self.hidden_size})")
         out, _ = self.gru(x, h0)
-        if debug:
-            print(f"GRU output shape: {out.shape}, (Batch size: {out.size(0)}, Sequence length: {out.size(1)}, Hidden size: {out.size(2)})")
-        # out: tensor of shape (batch_size, 1, hidden_size)
-        out = self.fc(out)[:, -1, :]  # get last time step
-        if debug:
-            print(f"Fully connected output shape: {out.shape}, (Batch size: {out.size(0)}, Output size: {out.size(1)})")
+        out = self.fc(out) # (batch_size, seq_length, output_size)
         # out: tensor of shape (batch_size, output_size)
         return torch.sigmoid(out), h
     
 
-class CNN_GRUClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, cnn_channels=16, kernel_size=3, dropout=0.2):
-        super(CNN_GRUClassifier, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
+class MaskEncoder(nn.Module):
+    def __init__(self, in_channels=1, emb_dim=8):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, 8, kernel_size=(3,7), padding=(1,3))
+        self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=(3,5), padding=(1,2))
+        self.bn2 = nn.BatchNorm2d(16)
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=(3,3), padding=1)
+        self.bn3 = nn.BatchNorm2d(32)
+        self.gap = nn.AdaptiveAvgPool2d((1,1))
+        self.fc = nn.Linear(32, emb_dim)
 
-        # CNN layer
-        self.conv1 = nn.Conv1d(in_channels=input_size, out_channels=cnn_channels, kernel_size=kernel_size, padding=kernel_size//2)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-
-        # GRU layer
-        self.gru = nn.GRU(input_size=cnn_channels, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, dropout=dropout)
-
-        # Fully connected output
-        self.fc = nn.Linear(hidden_size, output_size)
-        
-    def forward(self, x, debug=False):
-        # x shape: (batch, seq_len, input_size)
-        if debug:
-            print(f"Input shape: {x.shape}")
-        x = x.permute(0, 2, 1)            # (batch, input_size, seq_len) for Conv1d
-        x = self.conv1(x)
-        x = self.relu(x)
-        x = x.permute(0, 2, 1)            # (batch, seq_len, features) for GRU
-        x = self.dropout(x)
-        
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        out, _ = self.gru(x, h0)
-        out = self.fc(out)                # (batch, seq_len, output_size)
-        return torch.sigmoid(out)
-
+    def forward(self, x):
+        # x: (B, 1, H, W)
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = self.gap(x).view(x.size(0), -1)
+        emb = self.fc(x)  # (B, emb_dim)
+        return emb
     
 
-def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, device, downsampling_freq, window_size, threshold, log=False, test_loader=None):
+def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, device, downsampling_freq, threshold, log=False, test_loader=None):
     model.to(device)
+    # ensure criterion returns per-sample loss
     for epoch in range(num_epochs):
-        for inputs, targets in train_loader:
+        for inputs, masks, targets, weights in train_loader:
             model.train()
 
-            inputs, targets = inputs.to(device), targets.to(device)
-            outputs, _ = model(inputs)
+            inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+            outputs, _ = model(inputs, masks)
+            criterion.reduction = 'none'
             loss = criterion(outputs, targets)
+            # apply weights
+            loss = (loss * weights.to(device)).mean()
             optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 5)
@@ -88,7 +91,7 @@ def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, devic
         if log:
             wandb.log({"epoch": epoch+1, "loss": loss.item()})
             if test_loader is not None:
-                val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, window_size, threshold=threshold)
+                val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, threshold=threshold)
                 wandb.log({
                     "epoch": epoch+1,
                     "val_loss": val_loss,
@@ -99,13 +102,13 @@ def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, devic
                     "val_start_accuracy": np.mean(start_accuracies),
                     "val_end_accuracy": np.mean(end_accuracies)
                 })
+            
     return model
 
-def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, window_size, save_folder=None, threshold=0.9, ):
+def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, save_folder=None, threshold=0.9):
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-    window_size_samples = window_size * downsampling_freq
-
+    criterion.reduction = 'mean'
     model.eval()
     model.to(device)
     all_targets = []
@@ -115,53 +118,38 @@ def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq,
     end_accuracies = []
     
     with torch.no_grad():
-        for batch_i, (full_curve, full_label) in enumerate(test_loader):
-            curve_loss = 0.0
-            # we recieve the full curve 
-            full_curve, full_label = full_curve.to(device), full_label.to(device)
-            seq_len = full_curve.size(1)
-            # store output for plotting
-            preds_prob = []
-            preds_bin = []
-            label_windowed = []
+        for batch_i, (inputs, masks, targets, _) in enumerate(test_loader):
+            inputs, masks, targets = inputs.to(device), masks.to(device), targets.to(device)
+            
+            # pass through the model
+            outputs, _ = model(inputs, masks)
+            batch_loss = criterion(outputs, targets)
+            loss += batch_loss.item()
 
-            for t in range(seq_len-window_size_samples):
-                window = full_curve[:, t:t+window_size_samples, :]
-                label =  full_label[:, t+window_size_samples, :]
-                y_pred, _ = model(window)
-                curve_loss += criterion(y_pred, label)
+            # change to np for plotting and metrics
+            inputs = inputs.cpu().numpy().squeeze()
+            masks = masks.cpu().numpy().squeeze()
+            targets = targets.cpu().numpy().squeeze()
+            outputs = outputs.cpu().numpy().squeeze()
 
-                y_pred_np = y_pred.squeeze().cpu().numpy()
-                y_bin = int(y_pred_np > threshold)
+            # collect binary predictions
+            preds_bin = (outputs >= threshold).astype(int)
+            all_targets.extend(targets.tolist())
+            all_outputs.extend(preds_bin.tolist())
 
-                preds_prob.append(y_pred_np)
-                preds_bin.append(y_bin)
-                label_windowed.append(label.squeeze().cpu().numpy())
 
-            loss += curve_loss.item() / (seq_len - window_size_samples)
-
-            all_targets.extend(label_windowed)
-            all_outputs.extend(preds_bin)
 
             if save_folder:
                 save_path = save_folder / f'eval_plot_{batch_i+1}.png'
-                plot_eval(full_curve[:,window_size_samples:].cpu().numpy().flatten(), label_windowed, preds_prob, downsampling_freq, save_path=save_path)
-            if np.any(np.diff(label_windowed)==1):
-                true_start_time = np.where(np.diff(label_windowed)==1)[0] + 1
-                if np.any(np.diff(preds_bin)==1):
-                    pred_start_time = np.where(np.diff(preds_bin)==1)[0] + 1
-                else :
-                    pred_start_time = np.array([])
-                start_accuracies.append(start_end_accuracy(pred_start_time, true_start_time, downsampling_freq))
+                plot_eval(inputs, masks, targets, outputs, downsampling_freq, save_path=save_path)
 
+            true_start_time = np.where(np.diff(targets)==1)[0] + 1
+            pred_start_time = np.where(np.diff(preds_bin)==1)[0] + 1
+            start_accuracies.append(start_end_accuracy(pred_start_time, true_start_time, downsampling_freq))
+            true_end_time = np.where(np.diff(targets)==-1)[0] + 1
+            pred_end_time = np.where(np.diff(preds_bin)==-1)[0] + 1
+            end_accuracies.append(start_end_accuracy(pred_end_time, true_end_time, downsampling_freq))
 
-            if np.any(np.diff(label_windowed)==-1):
-                true_end_time = np.where(np.diff(label_windowed)==-1)[0] + 1
-                if np.any(np.diff(preds_bin)==-1):
-                    pred_end_time = np.where(np.diff(preds_bin)==-1)[0] + 1
-                else:
-                    pred_end_time = np.array([])
-                end_accuracies.append(start_end_accuracy(pred_end_time, true_end_time, downsampling_freq))
 
     accuracy = accuracy_score(all_targets, all_outputs)
     precision = precision_score(all_targets, all_outputs)
@@ -172,13 +160,36 @@ def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq,
             
 
 
-def plot_eval(inputs, targets, outputs, downsampling_freq, save_path):
+def plot_eval(inputs, masks, targets, outputs, downsampling_freq, save_path):
     import matplotlib.pyplot as plt
     plt.figure(figsize=(12, 6))
     timesteps = np.arange(len(inputs)) / downsampling_freq
-    plt.plot(timesteps, inputs, label='Sensor Input Normalized', alpha=0.5)
-    plt.plot(timesteps, targets, label='True Labels', alpha=0.7)
-    plt.plot(timesteps, outputs, label='Predicted Labels', alpha=0.7)
+    input_size = inputs.shape[1] if len(inputs.shape) >1 else 1
+    if input_size >1:
+        # first channel is force sensor, 2-4 are bandpowers
+        plt.plot(timesteps, inputs[:,0], label='Force Sensor Input Normalized', alpha=0.5, color='blue')
+        for i in range(1, input_size):
+            plt.plot(timesteps, inputs[:,i], label=f'Bandpower {i}', alpha=0.3, color='lightblue')
+        plt.plot(timesteps, targets, label='True Labels', alpha=0.7, color='green')
+        plt.plot(timesteps, outputs, label='Predicted Labels', alpha=0.7, color='red')
+        plt.legend()
+        plt.title('GRU Model Evaluation')
+        plt.xlabel('Time (s)')
+        plt.ylabel('In Clot Probability / Sensor Inputs')
+        plt.savefig(save_path)
+    if len(masks) > 0:
+        plt.figure(figsize=(12, 6))
+        for i in range(masks.shape[1]):
+            plt.plot(timesteps, masks[:, i], label=f'Mask embedding{i}', alpha=0.3)
+        plt.legend()
+        plt.title('Mask Visualization')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Mask Value')
+        plt.savefig(save_path.with_name(save_path.stem + '_masks.png'))
+    else:
+        plt.plot(timesteps, inputs, label='Force Sensor Input Normalized', alpha=0.5, color='blue')
+    plt.plot(timesteps, targets, label='True Labels', alpha=0.7, color='green')
+    plt.plot(timesteps, outputs, label='Predicted Labels', alpha=0.7, color='red')
     plt.legend()
     plt.title('GRU Model Evaluation')
     plt.xlabel('Time (s)')

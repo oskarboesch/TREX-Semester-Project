@@ -1,4 +1,0 @@
-hidden_size: 16
-num_layers: 2
-cnn_channels: 16
-dropout: 0.2

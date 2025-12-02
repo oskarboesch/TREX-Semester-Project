@@ -4,6 +4,10 @@ import time
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy.signal import sosfreqz, butter, zpk2sos, sosfiltfilt
+import os
+import cv2
+from pathlib import Path
+from .load_data import get_images_paths_from_log
 
 # Helper functions
 def design_butter(f_s, f_c, n, ftype='low'):
@@ -128,7 +132,7 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
         data_fit_plot[i] = df_cropped.copy()  # Not downsampled
 
         # Downsample
-        df_down = downsample(df_cropped, f_s=f_s, f_target=5)
+        df_down = downsample(df_cropped, f_s=f_s, f_target=20)
 
         # check if df_down is empty after cropping
         if df_down.empty:
@@ -146,7 +150,7 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
 
     print(f"Preprocessing time: {time.time() - start_time:.3f} s")
 
-def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10):
+def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10, with_bandpower=False):
     df = reset_timestamps(df, fs=sampling_rate)
     lowpass_cutoff = downsampling_freq / 2.0  # Nyquist frequency after downsampling
     data = df[head].values
@@ -155,18 +159,27 @@ def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, down
 
     # Crop bounds
     if direction == "Forward":
-        range_crop = [5, 0]
+        n = np.random.uniform(1, 8)
+        range_crop = [n, 0]
     else:
         range_crop = [2, 0]
     df_cropped = crop_data(df, df["timestamps"], range_crop)
-    print(df_cropped['timestamps'])
     # Downsample
     df_down = downsample(df_cropped, sampling_rate, downsampling_freq)
-
+    
     # Baseline correction
     baseline = df_down[head].iloc[0]
     df_down[head] = df_down[head] - baseline
     df_cropped[head] = df_cropped[head] - baseline
+
+    if with_bandpower:
+        band_powers = compute_band_power(df_down, head, fs=downsampling_freq)
+        # need to get rid of window size effect 
+        window_size = downsampling_freq // 2
+        df_down = df_down.iloc[window_size-1:].reset_index(drop=True)
+        assert band_powers.shape[0] == len(df_down), "Band power length mismatch after cropping"
+        for i in range(band_powers.shape[1]):
+            df_down[f'band_power_{i}'] = band_powers[:, i]
 
     return df_down
 
@@ -177,10 +190,40 @@ def filter(data, sampling_rate=1000, filter_order=3, cutoff_freq=10):
     return ydata
 
 
-def preprocess_logs(df_list, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10):
+def compute_band_power(df_down, head, fs, bands=[(0,4),(4,6),(6,10)]):
+    """
+    df_down: downsampled signal (timestamps must match downsampled points)
+    head: signal column
+    bands: list of frequency bands
+    fs_original: sampling rate of the original signal
+    """
+    from scipy.signal import spectrogram
+    signal = df_down[head].values
+    window_size = fs//2  # 0.5 second windows
+    overlap = window_size - 1  # 1 sample step
+    step_size = window_size - overlap
+    num_windows = (len(df_down) - overlap) // step_size
+    band_powers_sliding = np.zeros((num_windows, 3))  # 3 bands
+    for w in range(num_windows):
+        start_idx = w * step_size
+        end_idx = start_idx + window_size
+        if end_idx > len(signal):
+            break
+        segment = signal[start_idx:end_idx]
+        f, t, Sxx = spectrogram(segment, fs=fs, nperseg=window_size, noverlap=overlap)
+        power_spectrum = np.mean(Sxx, axis=1)  # Average over time
+        for b, (f_low, f_high) in enumerate(bands):
+            band_mask = (f >= f_low) & (f < f_high)
+            band_power = np.trapz(power_spectrum[band_mask], f[band_mask])
+            band_powers_sliding[w, b] = band_power
+    return band_powers_sliding
+
+
+
+def preprocess_logs(df_list, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10, with_bandpower=False):
     processed_list = []
     for df in df_list:
-        processed = preprocess_log(df, head, direction, sampling_rate, filter_order, downsampling_freq)
+        processed = preprocess_log(df, head, direction, sampling_rate, filter_order, downsampling_freq, with_bandpower=with_bandpower)
         processed_list.append(processed)
     return processed_list
 
@@ -239,3 +282,101 @@ def reset_timestamps(df, fs=1000):
     dt = 1.0 / fs
     df["timestamps"] = np.arange(len(df)) * dt
     return df
+
+
+def load_and_preprocess_images(img_paths, rotate_code=None, fx=0.25, fy=0.25):
+    """Load, rotate, and downsample grayscale images from a list of paths."""
+    imgs = []
+    for p in img_paths:
+        img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+        if rotate_code is not None:
+            img = cv2.rotate(img, rotate_code)
+        img = cv2.resize(img, (0, 0), fx=fx, fy=fy, interpolation=cv2.INTER_AREA)
+        imgs.append(img)
+    return np.stack(imgs).astype(np.float32)
+
+def compute_foreground_masks(images, alpha=0.3, threshold=0.05):
+    """Compute EMA-based foreground masks for a stack of images."""
+    background = images[0]
+    masks = []
+    for i in range(images.shape[0]):
+        diff = np.abs(images[i] - background)
+        mask = (diff > threshold).astype(np.float32)
+        masks.append(mask)
+        background = alpha * images[i] + (1 - alpha) * background
+    return masks
+
+def get_cropping_bounds(masks, margin=20):
+    """Compute bounding box coordinates covering all masks with margin."""
+    full_mask = np.max(np.stack(masks), axis=0)
+    ys, xs = np.where(full_mask > 0)
+    return (
+        max(np.min(xs) - margin, 0), min(np.max(xs) + margin, full_mask.shape[1]),
+        max(np.min(ys) - margin, 0), min(np.max(ys) + margin, full_mask.shape[0])
+    )
+
+def crop_and_resize_masks(masks, bounds, target_shape=(60, 300)):
+    """Crop masks to bounds and resize to target_shape."""
+    min_x, max_x, min_y, max_y = bounds
+    return [
+        cv2.resize(mask[min_y:max_y, min_x:max_x], target_shape[::-1], interpolation=cv2.INTER_AREA)
+        for mask in masks
+    ]
+
+def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(60, 300), save=False):
+    """Main preprocessing function for camera masks."""
+    all_masks_cam1, all_masks_cam2 = [], []
+
+    cam1_bounds_list, cam2_bounds_list = [], []
+
+    # 1. Load, rotate, downsample, compute masks
+    for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Preprocessing images"):
+        cam1_paths, cam2_paths = get_images_paths_from_log(row)
+        cam1_imgs = load_and_preprocess_images(cam1_paths, rotate_code=cv2.ROTATE_90_CLOCKWISE)
+        cam2_imgs = load_and_preprocess_images(cam2_paths, rotate_code=cv2.ROTATE_180)
+
+        masks_cam1 = compute_foreground_masks(cam1_imgs, alpha, threshold)
+        masks_cam2 = compute_foreground_masks(cam2_imgs, alpha, threshold)
+
+        all_masks_cam1.append(masks_cam1)
+        all_masks_cam2.append(masks_cam2)
+
+        cam1_bounds_list.append(get_cropping_bounds(masks_cam1, margin))
+        cam2_bounds_list.append(get_cropping_bounds(masks_cam2, margin))
+
+    # 2. Compute overall bounds across logs
+    overall_bounds_cam1 = (
+        min(b[0] for b in cam1_bounds_list), max(b[1] for b in cam1_bounds_list),
+        min(b[2] for b in cam1_bounds_list), max(b[3] for b in cam1_bounds_list)
+    )
+    overall_bounds_cam2 = (
+        min(b[0] for b in cam2_bounds_list), max(b[1] for b in cam2_bounds_list),
+        min(b[2] for b in cam2_bounds_list), max(b[3] for b in cam2_bounds_list)
+    )
+
+    # 3. Crop, resize, and optionally save masks
+    for i in tqdm(range(len(all_masks_cam1)), desc="Cropping and resizing masks"):
+        all_masks_cam1[i] = crop_and_resize_masks(all_masks_cam1[i], overall_bounds_cam1, target_shape)
+        all_masks_cam2[i] = crop_and_resize_masks(all_masks_cam2[i], overall_bounds_cam2, target_shape)
+
+        if save:
+            cam1_paths, cam2_paths = get_images_paths_from_log(logs.iloc[i])
+            for j, (mask1, mask2) in enumerate(zip(all_masks_cam1[i], all_masks_cam2[i])):
+                save_path_1 = str(cam1_paths[j]).replace("raw", "processed").replace(".jpg", "_mask.npz")
+                save_path_2 = str(cam2_paths[j]).replace("raw", "processed").replace(".jpg", "_mask.npz")
+                os.makedirs(os.path.dirname(save_path_1), exist_ok=True)
+                os.makedirs(os.path.dirname(save_path_2), exist_ok=True)
+                np.savez_compressed(save_path_1, mask1.astype(np.uint8))
+                np.savez_compressed(save_path_2, mask2.astype(np.uint8))
+
+    return all_masks_cam1, all_masks_cam2
+
+if __name__ == "__main__":
+    from .load_data import list_logs
+    from . import paths 
+    heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
+    heads_rename = ["timestamps", "force_sensor_v"]
+    f_s = 1000
+    fss = 568.5
+    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
+    preprocess_images(log_names, save=True)

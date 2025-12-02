@@ -230,3 +230,17 @@ def load_and_preprocess(log, max_frames=200, threshold=0.1):
     return cam1_tensor, cam2_tensor
 
 
+def get_images_paths_from_log(log):
+    """
+    Load all images from the two cameras for a given log.
+    args:
+        log (pd.Series): A row from the logs DataFrame containing the 'path' to the log folder.
+    returns:
+        cam1_imgs: Array of shape [N, H, W] for camera 1 images.
+        cam2_imgs: Array of shape [N, H, W] for camera 2 images.
+    """
+    from utils.extract_number import extract_number
+    folder = Path(log["path"]).parent
+    cam1_paths = sorted(folder.glob("frameID_*.jpg"), key=extract_number)
+    cam2_paths = sorted(folder.glob("II_frameID_*.jpg"), key=extract_number)
+    return cam1_paths, cam2_paths
