@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fit
+#SBATCH --job-name=preprocess
 #SBATCH --time=16:00:00
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
@@ -10,7 +10,7 @@
 #SBATCH --output=logs/preprocess_%A_%a.out
 #SBATCH --error=logs/preprocess_%A_%a.err
 
-cd ~/TREX-Semester-Project
+cd ~/TREX-Semester-Project/src
 
 # Load modules or activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -25,4 +25,4 @@ fi
 conda activate trex_env
 
 # Run the script
-python -m src.data.preprocess_data
+python -m data.preprocess_data

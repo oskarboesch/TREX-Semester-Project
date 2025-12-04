@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fit
+#SBATCH --job-name=fit_cv
 #SBATCH --time=16:00:00
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
@@ -7,8 +7,8 @@
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --output=logs/fit_gru_%A_%a.out
-#SBATCH --error=logs/fit_gru_%A_%a.err
+#SBATCH --output=logs/fit_cv_gru_%A_%a.out
+#SBATCH --error=logs/fit_cv_gru_%A_%a.err
 
 # ============================
 #    Argument Parsing
@@ -18,7 +18,7 @@ FIT_CFG=$2
 MODEL_CFG=$3
 
 if [ -z "$DATA_CFG" ] || [ -z "$FIT_CFG" ] || [ -z "$MODEL_CFG" ]; then
-    echo "❌ Error: Missing arguments."
+    echo "Error: Missing arguments."
     echo "Usage: sbatch fit.sh <data_config.yml> <fit_config.yml> <model_config.yml>"
     exit 1
 fi
@@ -46,7 +46,7 @@ conda activate trex_env
 # ============================
 #    Run training
 # ============================
-python src/fit_gru.py \
+python src/cross_validate.py \
     --data_config "$DATA_CFG" \
     --fit_config "$FIT_CFG" \
     --model_config "$MODEL_CFG"

@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 from datetime import datetime
 from scipy.io import loadmat
+from utils.extract_number import extract_number
+
 import cv2
 import torch
 
@@ -239,7 +241,6 @@ def get_images_paths_from_log(log):
         cam1_imgs: Array of shape [N, H, W] for camera 1 images.
         cam2_imgs: Array of shape [N, H, W] for camera 2 images.
     """
-    from utils.extract_number import extract_number
     folder = Path(log["path"]).parent
     cam1_paths = sorted(folder.glob("frameID_*.jpg"), key=extract_number)
     cam2_paths = sorted(folder.glob("II_frameID_*.jpg"), key=extract_number)

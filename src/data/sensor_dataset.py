@@ -43,12 +43,13 @@ class SensorDataset(Dataset):
             if mode=='eval':
                 raise ValueError("kde weighting is only used in training mode")
             # compute sample weights from training set only
-            all_forces = np.concatenate([df[['force_sensor_mN']].values for df in data_fit], axis=0)
-            self.kde = KernelDensity(kernel='gaussian', bandwidth=2).fit(all_forces)
-            self.sample_weights = []
+
             for label in labels:
                 length = label['End'].values - label['Start'].values
                 self.lengths.extend(length.tolist())
+            self.kde = KernelDensity(kernel='gaussian', bandwidth=2).fit(np.array(self.lengths).reshape(-1, 1))
+            self.sample_weights = []
+            for length in self.lengths:
                 log_dens = self.kde.score_samples(np.array(length).reshape(1,-1))
                 weight = 1.0 / np.exp(log_dens)
                 self.sample_weights.extend(weight.tolist())
@@ -79,29 +80,61 @@ class SensorDataset(Dataset):
 
             if 'images' in self.features:
                 img_1_paths, img_2_paths = get_images_paths_from_log(log_names.iloc[i])
-                # processed paths are the same but change raw with processed and jpg with .npz
-                masks_list = []
+
+                # STEP 1 — Load masks and store keyed by frame_id
+                masks_dict_1 = {}
+                masks_dict_2 = {}
+                frame_ids_1 = []
+                frame_ids_2 = []
+
                 for p1, p2 in zip(img_1_paths, img_2_paths):
                     proc_p1 = str(p1).replace('raw', 'processed').replace('.jpg', '_mask.npz')
                     proc_p2 = str(p2).replace('raw', 'processed').replace('.jpg', '_mask.npz')
-                    mask1 = np.load(proc_p1)['arr_0'][None, :, :]
-                    mask2 = np.load(proc_p2)['arr_0'][None, :, :]
-                    mask = np.concatenate([mask1, mask2], axis=0)  # concatenate embeddings from both images
-                    masks_list.append(mask)
-                # images are sampled at 10 Hz
-                mask_timestamps = np.arange(len(masks_list)) / 10.0
-                # need to align masks to x timestamps
+
+                    data_1 = np.load(proc_p1)
+                    data_2 = np.load(proc_p2)
+
+                    fid1 = int(data_1["frame_id"])
+                    fid2 = int(data_2["frame_id"])
+
+                    frame_ids_1.append(fid1)
+                    frame_ids_2.append(fid2)
+
+                    masks_dict_1[fid1] = data_1['mask'][None, :, :]
+                    masks_dict_2[fid2] = data_2['mask'][None, :, :]
+
+                # STEP 2 — Keep only the frames present in BOTH cameras
+                frame_ids_common = sorted(set(frame_ids_1) & set(frame_ids_2))
+
+                # STEP 3 — Build new masks_list ONLY from common frame IDs
+                masks_list = []
+                mask_timestamps = []
+
+                for fid in frame_ids_common:
+                    mask1 = masks_dict_1[fid]
+                    mask2 = masks_dict_2[fid]
+                    masks_list.append(np.concatenate([mask1, mask2], axis=0))
+                    mask_timestamps.append(fid / 10.0)     # you said frameID_x.jpg => sampled at 10 Hz
+
+                mask_timestamps = np.array(mask_timestamps)
+
+                # STEP 4 — Align to x_timestamps
                 x_timestamps = df['timestamps'].values
                 print(f"Aligning {mask_timestamps} to {x_timestamps}")
 
-                # cut masks to first x_timestamps
-                mask_timestamps = mask_timestamps[mask_timestamps >= x_timestamps[0]]
-                # interpolate masks to x timestamps closest indices
+                # restrict mask timestamps to >= first x timestamp
+                valid = mask_timestamps >= x_timestamps[0]
+                mask_timestamps = mask_timestamps[valid]
+                masks_list = [m for (m, v) in zip(masks_list, valid) if v]
+
+                # STEP 5 — Nearest-neighbor alignment
                 masks_aligned = []
                 for t in x_timestamps:
                     idx = np.argmin(np.abs(mask_timestamps - t))
                     masks_aligned.append(masks_list[idx])
+
                 masks = np.array(masks_aligned)
+
 
             if with_augmentation and mode == 'train' and x is not None:
                 x_noise = x + np.random.normal(0, 0.01, x.shape)

@@ -4,6 +4,7 @@ import wandb
 import numpy as np
 import sys
 import torch.nn.functional as F
+import copy
 
 
 
@@ -49,29 +50,26 @@ class GRUClassifier(nn.Module):
     
 
 class MaskEncoder(nn.Module):
-    def __init__(self, in_channels=1, emb_dim=8):
+    def __init__(self, in_channels=2, emb_dim=8):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, 8, kernel_size=(3,7), padding=(1,3))
         self.bn1 = nn.BatchNorm2d(8)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=(3,5), padding=(1,2))
-        self.bn2 = nn.BatchNorm2d(16)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=(3,3), padding=1)
-        self.bn3 = nn.BatchNorm2d(32)
         self.gap = nn.AdaptiveAvgPool2d((1,1))
-        self.fc = nn.Linear(32, emb_dim)
+        self.fc = nn.Linear(8, emb_dim)
 
     def forward(self, x):
         # x: (B, 1, H, W)
         x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
         x = self.gap(x).view(x.size(0), -1)
         emb = self.fc(x)  # (B, emb_dim)
         return emb
     
 
-def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, device, downsampling_freq, threshold, log=False, test_loader=None):
+def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, device, downsampling_freq, threshold, log=False, test_loader=None, early_stopping=True, patience=50):
     model.to(device)
+    best_val_f1 = 0.0
+    counter = 0
+    best_model_state = None
     # ensure criterion returns per-sample loss
     for epoch in range(num_epochs):
         for inputs, masks, targets, weights in train_loader:
@@ -87,11 +85,24 @@ def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, devic
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 5)
             optimizer.step()
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}', file=sys.stderr)
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+        val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, threshold=threshold)
+        # EARLY STOP CHECK
+        if early_stopping:
+            if val_f1 > best_val_f1:
+                best_val_f1 = val_f1
+                counter = 0  # reset patience
+                best_model_state = copy.deepcopy(model.state_dict())
+            else:
+                counter += 1
+                print(f"EarlyStopping: no improvement for {counter}/{patience} epochs.")
+
+            if counter >= patience:
+                print("Early stopping triggered.")
+                break
         if log:
             wandb.log({"epoch": epoch+1, "loss": loss.item()})
             if test_loader is not None:
-                val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, threshold=threshold)
                 wandb.log({
                     "epoch": epoch+1,
                     "val_loss": val_loss,
@@ -102,7 +113,9 @@ def train_gru_model(model, train_loader, criterion, optimizer, num_epochs, devic
                     "val_start_accuracy": np.mean(start_accuracies),
                     "val_end_accuracy": np.mean(end_accuracies)
                 })
-            
+    # Restore the best model
+    if early_stopping and best_model_state is not None:
+        model.load_state_dict(best_model_state)
     return model
 
 def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq, save_folder=None, threshold=0.9):
@@ -165,29 +178,17 @@ def plot_eval(inputs, masks, targets, outputs, downsampling_freq, save_path):
     plt.figure(figsize=(12, 6))
     timesteps = np.arange(len(inputs)) / downsampling_freq
     input_size = inputs.shape[1] if len(inputs.shape) >1 else 1
-    if input_size >1:
+    if input_size > 10: # freq + signal
         # first channel is force sensor, 2-4 are bandpowers
         plt.plot(timesteps, inputs[:,0], label='Force Sensor Input Normalized', alpha=0.5, color='blue')
         for i in range(1, input_size):
             plt.plot(timesteps, inputs[:,i], label=f'Bandpower {i}', alpha=0.3, color='lightblue')
-        plt.plot(timesteps, targets, label='True Labels', alpha=0.7, color='green')
-        plt.plot(timesteps, outputs, label='Predicted Labels', alpha=0.7, color='red')
-        plt.legend()
-        plt.title('GRU Model Evaluation')
-        plt.xlabel('Time (s)')
-        plt.ylabel('In Clot Probability / Sensor Inputs')
-        plt.savefig(save_path)
-    if len(masks) > 0:
-        plt.figure(figsize=(12, 6))
-        for i in range(masks.shape[1]):
-            plt.plot(timesteps, masks[:, i], label=f'Mask embedding{i}', alpha=0.3)
-        plt.legend()
-        plt.title('Mask Visualization')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Mask Value')
-        plt.savefig(save_path.with_name(save_path.stem + '_masks.png'))
-    else:
+    elif input_size ==1: # just signal
         plt.plot(timesteps, inputs, label='Force Sensor Input Normalized', alpha=0.5, color='blue')
+    elif input_size ==10 : # just bandpowers
+        for i in range(input_size):
+            plt.plot(timesteps, inputs[:,i], label=f'Bandpower {i}', alpha=0.3, color='lightblue')
+
     plt.plot(timesteps, targets, label='True Labels', alpha=0.7, color='green')
     plt.plot(timesteps, outputs, label='Predicted Labels', alpha=0.7, color='red')
     plt.legend()

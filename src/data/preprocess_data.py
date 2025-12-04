@@ -3,7 +3,8 @@ import numpy as np
 import time
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from scipy.signal import sosfreqz, butter, zpk2sos, sosfiltfilt
+from scipy.signal import sosfreqz, butter, zpk2sos, sosfiltfilt, iirnotch, filtfilt
+
 import os
 import cv2
 from pathlib import Path
@@ -151,11 +152,21 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
     print(f"Preprocessing time: {time.time() - start_time:.3f} s")
 
 def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, downsampling_freq=10, with_bandpower=False):
-    df = reset_timestamps(df, fs=sampling_rate)
+    df_raw = reset_timestamps(df, fs=sampling_rate)
+    df = df_raw.copy()
     lowpass_cutoff = downsampling_freq / 2.0  # Nyquist frequency after downsampling
-    data = df[head].values
-    df[head] = filter(data, sampling_rate=sampling_rate, filter_order=filter_order, cutoff_freq=lowpass_cutoff)
-
+    df[head] = filter(df[head].values, sampling_rate=sampling_rate, filter_order=filter_order, cutoff_freq=lowpass_cutoff)
+    # apply notch filter to remove 50 Hz powerline noise if needed to raw signal
+    fundamental = 50 # change to 60 if needed
+    Q = 30           # quality factor
+    n_harmonics = 5
+    assert sampling_rate > fundamental * n_harmonics, "Sampling rate too low for notch filtering wth given number of harmonics"
+    for n in range(1, n_harmonics + 1):
+        f0 = n * fundamental
+        if f0 < sampling_rate / 2:
+            b_notch, a_notch = iirnotch(f0, Q, sampling_rate)
+            df_raw[head] = filtfilt(b_notch, a_notch, df_raw[head].values)
+    
 
     # Crop bounds
     if direction == "Forward":
@@ -164,6 +175,9 @@ def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, down
     else:
         range_crop = [2, 0]
     df_cropped = crop_data(df, df["timestamps"], range_crop)
+    # crop raw data to the same timestamps
+    first_time = df_cropped["timestamps"].iloc[0]
+    df_raw = df_raw[(df_raw["timestamps"] >= first_time)]
     # Downsample
     df_down = downsample(df_cropped, sampling_rate, downsampling_freq)
     
@@ -173,10 +187,13 @@ def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, down
     df_cropped[head] = df_cropped[head] - baseline
 
     if with_bandpower:
-        band_powers = compute_band_power(df_down, head, fs=downsampling_freq)
+        band_powers = compute_band_power(df_raw, head, fs=sampling_rate, n_bands=10)
         # need to get rid of window size effect 
         window_size = downsampling_freq // 2
-        df_down = df_down.iloc[window_size-1:].reset_index(drop=True)
+        df_down = df_down.iloc[window_size:].reset_index(drop=True)
+        if band_powers.shape[0] > len(df_down):
+            band_powers = band_powers[:len(df_down), :]
+
         assert band_powers.shape[0] == len(df_down), "Band power length mismatch after cropping"
         for i in range(band_powers.shape[1]):
             df_down[f'band_power_{i}'] = band_powers[:, i]
@@ -190,20 +207,20 @@ def filter(data, sampling_rate=1000, filter_order=3, cutoff_freq=10):
     return ydata
 
 
-def compute_band_power(df_down, head, fs, bands=[(0,4),(4,6),(6,10)]):
+def compute_band_power(df_raw, head, fs, n_bands=10):
     """
-    df_down: downsampled signal (timestamps must match downsampled points)
+    df_raw: raw signal (timestamps must match downsampled points)
     head: signal column
     bands: list of frequency bands
     fs_original: sampling rate of the original signal
     """
     from scipy.signal import spectrogram
-    signal = df_down[head].values
+    signal = df_raw[head].values
     window_size = fs//2  # 0.5 second windows
-    overlap = window_size - 1  # 1 sample step
+    overlap = window_size - 50  # 50 sample step because of 1000 Hz to 20 Hz downsampling
     step_size = window_size - overlap
-    num_windows = (len(df_down) - overlap) // step_size
-    band_powers_sliding = np.zeros((num_windows, 3))  # 3 bands
+    num_windows = (len(df_raw) - overlap) // step_size
+    band_powers_sliding = np.zeros((num_windows, n_bands))  # 3 bands
     for w in range(num_windows):
         start_idx = w * step_size
         end_idx = start_idx + window_size
@@ -212,6 +229,12 @@ def compute_band_power(df_down, head, fs, bands=[(0,4),(4,6),(6,10)]):
         segment = signal[start_idx:end_idx]
         f, t, Sxx = spectrogram(segment, fs=fs, nperseg=window_size, noverlap=overlap)
         power_spectrum = np.mean(Sxx, axis=1)  # Average over time
+        # divide spectrum into n_bands
+        bands = []
+        f_max = fs / 2
+        band_edges = np.linspace(0, f_max, n_bands + 1)
+        for i in range(n_bands):
+            bands.append((band_edges[i], band_edges[i + 1]))
         for b, (f_low, f_high) in enumerate(bands):
             band_mask = (f >= f_low) & (f < f_high)
             band_power = np.trapz(power_spectrum[band_mask], f[band_mask])
@@ -364,10 +387,24 @@ def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(
             for j, (mask1, mask2) in enumerate(zip(all_masks_cam1[i], all_masks_cam2[i])):
                 save_path_1 = str(cam1_paths[j]).replace("raw", "processed").replace(".jpg", "_mask.npz")
                 save_path_2 = str(cam2_paths[j]).replace("raw", "processed").replace(".jpg", "_mask.npz")
+                frame_id_1 = os.path.basename(cam1_paths[j]).split(".")[0]
+                frame_id_2 = os.path.basename(cam2_paths[j]).split(".")[0]
                 os.makedirs(os.path.dirname(save_path_1), exist_ok=True)
                 os.makedirs(os.path.dirname(save_path_2), exist_ok=True)
-                np.savez_compressed(save_path_1, mask1.astype(np.uint8))
-                np.savez_compressed(save_path_2, mask2.astype(np.uint8))
+                np.savez_compressed(save_path_1, mask=mask1.astype(np.uint8), frame_id=frame_id_1)
+                np.savez_compressed(save_path_2, mask=mask2.astype(np.uint8), frame_id=frame_id_2)
+
+    # 4. remove all raw images
+    if save:
+        for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Removing raw images"):
+            cam1_paths, cam2_paths = get_images_paths_from_log(row)
+            for path in cam1_paths + cam2_paths:
+                raw_path = str(path)
+                if "raw" in raw_path:
+                    try:
+                        os.remove(raw_path)
+                    except FileNotFoundError:
+                        pass
 
     return all_masks_cam1, all_masks_cam2
 
@@ -380,3 +417,11 @@ if __name__ == "__main__":
     fss = 568.5
     log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
     preprocess_images(log_names, save=True)
+
+def get_frame_id_from_path(path):
+    """Extract frame ID from image path."""
+    filename = Path(path).stem  # e.g. "frameID_5image5"
+    parts = filename.split("_")  # ["frameID", "5image5"]
+    raw_frame = parts[1] if len(parts) > 1 else parts[0]
+    frame_id = ''.join(filter(str.isdigit, raw_frame))  # keep only digits
+    return int(frame_id)

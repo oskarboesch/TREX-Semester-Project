@@ -3,3 +3,4 @@ downsampling_freq: 20
 seed: 42
 features: 
   - signal
+  - bandpower

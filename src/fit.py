@@ -1,124 +1,92 @@
 import numpy as np
 import wandb
 from datetime import datetime
-from pathlib import Path
-from data.load_data import load_data, list_logs, load_labels
-from data.preprocess_data import preprocess_logs
-from models.helpers import create_model_params
-from models.buckling_model import BucklingModel
-from models.double_slope_model import DoubleSlopeModel
+from data.load_data import list_logs
 import data.paths as paths
 import argparse
-
-# ============================
-# CONFIGURATION
-# ============================
-argparser = argparse.ArgumentParser(description="Fit models to experimental data.")
-argparser.add_argument("--forward", action="store_true", help="Use Buckling model (default: DoubleSlope model)")
-args = argparser.parse_args()
-FORWARD = args.forward
-LOG = True
-N_REPETITIONS = 50
-TOLERANCE = 1.5
-SEED = 0
-RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-MODEL_NAME = "Buckling" if FORWARD else "DoubleSlope"
-DIRECTION = "Forward" if FORWARD else "Backward"
-
+from models.gru import GRUClassifier, train_gru_model, evaluate_gru_model
+import torch
+from data.sensor_dataset import SensorDataset
+from torch.utils.data import DataLoader
+from sklearn.model_selection import train_test_split
+from utils.seed import set_seed
+from utils.config_loader import load_config
 paths.ensure_directories()
-np.random.seed(SEED)
 
-# ============================
-# LOAD & PREPROCESS DATA
-# ============================
 
-heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
-heads_rename = ["timestamps", "force_sensor_v"]
-f_s = 1000
-fss = 568.5
+def fit(data_cfg, fit_cfg, model_cfg):
+    RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    torch_generator = set_seed(data_cfg["seed"])
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
-log_names.drop([7, 158, 174], inplace=True, errors='ignore')
-log_names.reset_index(drop=True, inplace=True)
+    # Load Data
+    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
+    if data_cfg["direction"] != "Both":
+        log_names = log_names[log_names["direction"] == data_cfg["direction"]].reset_index(drop=True)
+    print(f"Total logs for {data_cfg['direction']} direction: {len(log_names)}")
 
-logs = load_data(log_names, heads_keep, heads_rename, fss)
-logs_fit = log_names.copy()
-data_fit = logs.copy()
-data_fit_plot = logs.copy()
-labels = load_labels(logs_fit)
-preprocess_logs(logs_fit, data_fit, data_fit_plot)
+    train_log_names, test_log_names = train_test_split(log_names, test_size=fit_cfg["test_size_ratio"], random_state=data_cfg["seed"])
+    train_log_names = train_log_names.reset_index(drop=True)
+    test_log_names = test_log_names.reset_index(drop=True)
+    print(f"Training logs: {len(train_log_names)}, Testing logs: {len(test_log_names)}")
+    train_dataset = SensorDataset(train_log_names, mode='train', downsampling_freq=data_cfg["downsampling_freq"], with_kde_weighting=fit_cfg.get("with_kde_weighting", False), features=data_cfg["features"])
+    test_dataset  = SensorDataset(test_log_names, mode='eval', downsampling_freq=data_cfg["downsampling_freq"], mean_force=train_dataset.mean_force, std_force=train_dataset.std_force, features=data_cfg["features"])
+    train_loader = DataLoader(train_dataset, batch_size=fit_cfg["batch_size"], shuffle=True, generator=torch_generator)
+    test_loader  = DataLoader(test_dataset, batch_size=1, shuffle=False, generator=torch_generator)
 
-xdata = [data_fit[i]["timestamps"].values for i in range(len(data_fit)) if logs_fit["direction"][i] == DIRECTION]
-ydata = [data_fit[i]["force_sensor_mN"].values for i in range(len(data_fit)) if logs_fit["direction"][i] == DIRECTION]
-labels = [labels[i] for i in range(len(data_fit)) if logs_fit["direction"][i] == DIRECTION]
+    # Define model
+    input_size = train_dataset.input_size
+    print(f"Input size: {input_size}")
+    gru_model = GRUClassifier(input_size=input_size, hidden_size=model_cfg["hidden_size"], num_layers=model_cfg["num_layers"], output_size=1, dropout=model_cfg["dropout"], with_images=("images" in data_cfg["features"])).to(device)
 
-model_params = create_model_params()
+    # Train 
+    criterion = torch.nn.BCELoss()
+    optimizer = torch.optim.Adam(gru_model.parameters(), lr=fit_cfg["learning_rate"], weight_decay=fit_cfg["weight_decay"])
+    print(f"Fitting {data_cfg['direction']} gru model with {fit_cfg['num_epochs']} epochs on {device}...")
+    if fit_cfg.get("log", False):
+        wandb.init(project="gru_model_fitting", name="GRU_Fit_" + RUN_ID)
+        wandb.config.update({**data_cfg, **fit_cfg, **model_cfg})
+    train_gru_model(gru_model, train_loader, criterion, optimizer, fit_cfg["num_epochs"], device, downsampling_freq=data_cfg["downsampling_freq"], threshold=fit_cfg["threshold"], log=fit_cfg.get("log", False), test_loader=test_loader)
 
-# ============================
-# SETUP RESULTS DIRECTORY
-# ============================
+    # save model
+    model_save_path = paths.MODELS_FOLDER / f"gru_{data_cfg['direction'].lower()}_model_{RUN_ID}.pt"
+    torch.save(gru_model.state_dict(), model_save_path)
+    print(f"Model saved to {model_save_path}")
 
-results_root = Path(paths.RESULTS_FOLDER) / MODEL_NAME / RUN_ID
-results_root.mkdir(parents=True, exist_ok=True)
+    # evaluate
+    print("Evaluating model on test set...")
+    save_folder = paths.GRU_RESULTS_FOLDER /  RUN_ID 
+    save_folder.mkdir(parents=True, exist_ok=True)
+    val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(gru_model, test_loader, device, criterion, data_cfg["downsampling_freq"], save_folder=save_folder, threshold=fit_cfg["threshold"])
+    print(f"Test Set - Loss: {val_loss:.4f}, Accuracy: {val_acc:.4f}, Precision: {val_prec:.4f}, Recall: {val_rec:.4f}, F1 Score: {val_f1:.4f}, Start Accuracy: {np.mean(start_accuracies):.4f}, End Accuracy: {np.mean(end_accuracies):.4f}")
 
-# ============================
-# MAIN FIT LOOP
-# ============================
+    # save the train and test weights in function of lengths as a plot
+    if fit_cfg.get("with_kde_weighting", False):
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(8,6))
+        plt.scatter(train_dataset.lengths, train_dataset.sample_weights[:len(train_dataset.lengths)], c='blue', label='Training Samples', alpha=0.6)
+        plt.xlabel("Clot Length (samples)")
+        plt.ylabel("Sample Weights")
+        plt.title("Sample Weights vs Clot Length in Training Set")
+        plt.grid()
+        plt.savefig(save_folder / "sample_weights_vs_length.png")
+        plt.close()
+    # save a complete config used for this run
+    complete_config = {**data_cfg, **fit_cfg, **model_cfg}
+    import yaml
+    with open(save_folder / "complete_config.yml", "w") as f:
+        yaml.dump(complete_config, f)
 
-rep_results_fit = []
-rep_rng_seeds = np.random.randint(0, 2**32, size=N_REPETITIONS)
+def main():
 
-for i_repeat, seed_i in enumerate(rep_rng_seeds, start=1):
-    np.random.seed(seed_i)
-    subfolder = results_root / f"repetition-{i_repeat}"
-    subfolder.mkdir(parents=True, exist_ok=True)
+    argparser = argparse.ArgumentParser(description="Fit models to experimental data.")
+    argparser.add_argument("--data_config", type=str, required=True, help="Path to data configuration file")
+    argparser.add_argument("--fit_config", type=str, required=True, help="Path to fit configuration file")
+    argparser.add_argument("--model_config", type=str, required=True, help="Path to model configuration file")
+    args = argparser.parse_args()
 
-    # W&B INIT (grouping by model type)
-    if LOG:
-        wandb.init(
-            project="SLSQP_Model_Fitting",
-            group=MODEL_NAME,                    # Grouped by model type
-            name=f"{MODEL_NAME.lower()}_rep{i_repeat}_run{RUN_ID}",  # Unique name per repetition
-            config={
-                "seed": int(seed_i),
-                "forward": FORWARD,
-                "model_params": model_params,
-            },
-            dir="../wandb",
-            reinit=True
-        )
+    data_cfg, fit_cfg, model_cfg = load_config(args.data_config, args.fit_config, args.model_config)
+    fit(data_cfg, fit_cfg, model_cfg)
 
-    # Choose the correct model
-    if FORWARD:
-        model = BucklingModel(model_params, xdata, ydata, labels, log=LOG)
-    else:
-        model = DoubleSlopeModel(model_params, xdata, ydata, labels, log=LOG)
-
-    # Fit model
-    options = {"maxiter": int(1e4), "ftol": 1e-8, "disp": False}
-    res = model.fit(method="SLSQP", options=options)
-    rep_results_fit.append(res)
-
-    # Save results
-    model_save_path = subfolder / f"{MODEL_NAME.lower()}_model_rep{i_repeat}.npz"
-    np.savez(model_save_path, res=res, model_params=model_params)
-
-    if LOG:
-        wandb.log({
-            "repeat": i_repeat,
-            "final_loss": res.fun,
-            "seed": int(seed_i)
-        })
-        wandb.finish()
-
-    print(f"[{i_repeat}/{N_REPETITIONS}] Finished repetition {i_repeat} with loss {res.fun:.4e}")
-
-# ============================
-# SAVE SUMMARY
-# ============================
-
-summary_path = results_root / "summary.npz"
-np.savez(summary_path, rep_results_fit=rep_results_fit, rep_rng_seeds=rep_rng_seeds)
-
-print(f"All repetitions finished for {MODEL_NAME}")
+if __name__ == "__main__":
+    main()
