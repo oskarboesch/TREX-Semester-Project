@@ -327,7 +327,7 @@ def load_and_preprocess_images(img_paths, rotate_code=None, fx=0.25, fy=0.25):
         imgs.append(img)
     return np.stack(imgs).astype(np.float32)
 
-def compute_foreground_masks(images, alpha=0.3, threshold=0.05):
+def compute_foreground_masks(images, alpha=0.01, threshold=0.05):
     """Compute EMA-based foreground masks for a stack of images."""
     background = images[0]
     masks = []
@@ -358,7 +358,7 @@ def crop_and_resize_masks(masks, bounds, target_shape=(60, 300)):
         for mask in masks
     ]
 
-def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(60, 300), save=False):
+def preprocess_images(logs, alpha=0.01, threshold=0.05, margin=20, target_shape=(60, 300), save=False, delete=True):
     """Main preprocessing function for camera masks."""
     all_masks_cam1, all_masks_cam2 = [], []
 
@@ -407,7 +407,7 @@ def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(
                 np.savez_compressed(save_path_1, mask=mask1.astype(np.uint8), frame_id=frame_id_1)
                 np.savez_compressed(save_path_2, mask=mask2.astype(np.uint8), frame_id=frame_id_2)
 
-    if save:
+    if save and delete:
         for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Removing raw images"):
             cam1_paths, cam2_paths = get_images_paths_from_log(row)
             for path in cam1_paths + cam2_paths:
@@ -441,12 +441,12 @@ def get_frame_id_from_path(path):
     return int(digits)
 
 if __name__ == "__main__":
-    from .load_data import list_logs, get_anat_logs, get_conical_logs, get_without_clot_logs
+    from .load_data import list_logs, get_anat_logs, get_conical_logs, get_without_clot_logs, get_paper_logs
     from . import paths 
     heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
     heads_rename = ["timestamps", "force_sensor_v"]
     f_s = 1000
     fss = 568.5
-    log_names = get_without_clot_logs()
+    log_names = get_paper_logs()
     preprocess_images(log_names, save=True)
 
