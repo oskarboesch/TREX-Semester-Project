@@ -333,7 +333,7 @@ def compute_foreground_masks(images, alpha=0.3, threshold=0.05):
     masks = []
     for i in range(images.shape[0]):
         diff = np.abs(images[i] - background)
-        mask = (diff > threshold).astype(np.float32)
+        mask = (diff > threshold).astype(np.uint8)
         masks.append(mask)
         background = alpha * images[i] + (1 - alpha) * background
     return masks
