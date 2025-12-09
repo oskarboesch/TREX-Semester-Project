@@ -7,11 +7,39 @@ import re
 from datetime import datetime
 from scipy.io import loadmat
 from utils.extract_number import extract_number
+from data.experiment_config import ExperimentConfig
+import data.paths as paths
 
 import cv2
 import torch
 
-def list_logs(path_data, dts_45=None):
+def get_paper_logs():
+    return list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
+
+def get_extra_logs():
+    return list_logs(paths.EXTRA_DATA_FOLDER)
+
+def get_anat_logs():
+    experiment_config = ExperimentConfig(model="Anatomical", placement="All", wire="All", technique="All", clot="With")
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+
+def get_conical_logs():
+    experiment_config = ExperimentConfig(model="Conical", placement="All", wire="All", technique="All", clot="With")
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+
+def get_bent_logs():
+    experiment_config = ExperimentConfig(model="All", placement="All", wire="Bent", technique="All", clot="With")
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+
+def get_twist_logs():
+    experiment_config = ExperimentConfig(model="All", placement="All", wire="All", technique="Twist", clot="With")
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+
+def get_without_clot_logs():
+    experiment_config = ExperimentConfig(model="All", placement="All", wire="All", technique="All", clot="Without")
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+
+def list_logs(path_data, dts_45=None, experiment_config: ExperimentConfig = None):
     """
     Creates a table (DataFrame) for each measurement log, for easy filtering.
     
@@ -63,6 +91,25 @@ def list_logs(path_data, dts_45=None):
             log_dict["direction"] = "Forward"
         else:
             log_dict["direction"] = np.nan
+
+        # Model
+        parts = file.parts
+        log_dict["model"] = next((p for p in parts if p in ["Anatomical", "Conical"]), "Conical")
+
+        # Placement
+        log_dict["placement"] = next((p for p in parts if p in ["Bifurcation", "Proximal"]), "Conical Placement")
+
+        # Wire shape
+        log_dict["wire_shape"] = next((p for p in parts if p in ["Straight", "Bent"]), "Straight")
+
+        # Technique
+        log_dict["technique"] = next((p for p in parts if p in ["Twist", "No_Twist"]), "No_Twist")
+
+        # Clot presence if Without in any part
+        if any("without" in p.lower() for p in parts):
+            log_dict["clot_presence"] = "Without"
+        else:
+            log_dict["clot_presence"] = "With"
         
         # Hardness / stiffness
         if re.search("hard", str(file), re.IGNORECASE):
@@ -91,6 +138,18 @@ def list_logs(path_data, dts_45=None):
         # Guide 45°
         if dts_45 is not None and pd.notna(log_dict["datetime"]):
             log_dict["guide_straight"] = log_dict["datetime"].date() not in [d.date() for d in dts_45]
+
+        if experiment_config is not None:
+            if log_dict["model"] != experiment_config.model and experiment_config.model != "All":
+                continue
+            if log_dict["placement"] != experiment_config.placement and experiment_config.placement != "All":
+                continue
+            if log_dict["wire_shape"] != experiment_config.wire and experiment_config.wire != "All":
+                continue
+            if log_dict["technique"] != experiment_config.technique and experiment_config.technique != "All":
+                continue
+            if log_dict["clot_presence"] != experiment_config.clot and experiment_config.clot != "All":
+                continue
         
         logs.append(log_dict)
     
@@ -122,11 +181,9 @@ def load_data(logs, heads_keep=None, heads_rename=None, fss=None):
     for idx, row in logs.iterrows():
         # Load CSV data
         df = pd.read_csv(row["path"], sep=';')
-        # Unwrap time and sync timestamps
-        timestamps = df["timestamp [s]"].diff().fillna(0).cumsum()
-        frame0_idx = df[df.get("Camera_trigger_signal", False)].index[0] if "Camera_trigger_signal" in df else 0
-        df["timestamp [s]"] = timestamps - timestamps.iloc[frame0_idx]
-        
+        sampling_rate = 1000
+        timestamps = np.arange(len(df)) / sampling_rate
+        df["timestamp [s]"] = timestamps
         # Keep only selected columns
         if heads_keep is not None:
             df = df[heads_keep]
@@ -232,7 +289,7 @@ def load_and_preprocess(log, max_frames=200, threshold=0.1):
     return cam1_tensor, cam2_tensor
 
 
-def get_images_paths_from_log(log):
+def get_images_paths_from_log(log, processed=False):
     """
     Load all images from the two cameras for a given log.
     args:
@@ -242,6 +299,18 @@ def get_images_paths_from_log(log):
         cam2_imgs: Array of shape [N, H, W] for camera 2 images.
     """
     folder = Path(log["path"]).parent
-    cam1_paths = sorted(folder.glob("frameID_*.jpg"), key=extract_number)
-    cam2_paths = sorted(folder.glob("II_frameID_*.jpg"), key=extract_number)
+    if processed:
+        folder = Path(str(folder).replace('raw', 'processed'))
+        print(folder)
+        cam1_paths = sorted(folder.glob("frameID_*_mask.npz"), key=extract_number)
+        cam2_paths = sorted(folder.glob("II_frameID_*_mask.npz"), key=extract_number)
+        if cam1_paths == [] or cam2_paths == []:
+            cam1_paths = sorted(folder.glob("Cam_282500004A20_frameID_*_imgIdx_*_mask.npz"), key=extract_number)
+            cam2_paths = sorted(folder.glob("Cam_2825000069CD_frameID_*_imgIdx_*_mask.npz"), key=extract_number)
+    else :
+        cam1_paths = sorted(folder.glob("frameID_*.jpg"), key=extract_number)
+        cam2_paths = sorted(folder.glob("II_frameID_*.jpg"), key=extract_number)
+        if cam1_paths == [] or cam2_paths == []:
+            cam1_paths = sorted(folder.glob("Cam_282500004A20_frameID_*.jpg"), key=extract_number)
+            cam2_paths = sorted(folder.glob("Cam_2825000069CD_frameID_*.jpg"), key=extract_number)
     return cam1_paths, cam2_paths

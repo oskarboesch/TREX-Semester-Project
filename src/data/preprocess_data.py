@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import warnings
 import time
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -312,6 +313,8 @@ def load_and_preprocess_images(img_paths, rotate_code=None, fx=0.25, fy=0.25):
     imgs = []
     for p in img_paths:
         img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+        if img is None:
+            raise FileNotFoundError(f"Image not found or unable to load: {p}")
         if rotate_code is not None:
             img = cv2.rotate(img, rotate_code)
         img = cv2.resize(img, (0, 0), fx=fx, fy=fy, interpolation=cv2.INTER_AREA)
@@ -333,6 +336,9 @@ def get_cropping_bounds(masks, margin=20):
     """Compute bounding box coordinates covering all masks with margin."""
     full_mask = np.max(np.stack(masks), axis=0)
     ys, xs = np.where(full_mask > 0)
+    if len(xs) == 0 or len(ys) == 0:
+        warnings.warn("No foreground pixels found in masks.")
+        return (0, full_mask.shape[1], 0, full_mask.shape[0])
     return (
         max(np.min(xs) - margin, 0), min(np.max(xs) + margin, full_mask.shape[1]),
         max(np.min(ys) - margin, 0), min(np.max(ys) + margin, full_mask.shape[0])
@@ -354,6 +360,7 @@ def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(
 
     # 1. Load, rotate, downsample, compute masks
     for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Preprocessing images"):
+        print(f"Processing the images of log {idx+1}/{len(logs)}: {row['path']}")
         cam1_paths, cam2_paths = get_images_paths_from_log(row)
         cam1_imgs = load_and_preprocess_images(cam1_paths, rotate_code=cv2.ROTATE_90_CLOCKWISE)
         cam2_imgs = load_and_preprocess_images(cam2_paths, rotate_code=cv2.ROTATE_180)
@@ -387,14 +394,13 @@ def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(
             for j, (mask1, mask2) in enumerate(zip(all_masks_cam1[i], all_masks_cam2[i])):
                 save_path_1 = str(cam1_paths[j]).replace("raw", "processed").replace(".jpg", "_mask.npz")
                 save_path_2 = str(cam2_paths[j]).replace("raw", "processed").replace(".jpg", "_mask.npz")
-                frame_id_1 = os.path.basename(cam1_paths[j]).split(".")[0]
-                frame_id_2 = os.path.basename(cam2_paths[j]).split(".")[0]
+                frame_id_1 = get_frame_id_from_path(cam1_paths[j])
+                frame_id_2 = get_frame_id_from_path(cam2_paths[j])
                 os.makedirs(os.path.dirname(save_path_1), exist_ok=True)
                 os.makedirs(os.path.dirname(save_path_2), exist_ok=True)
                 np.savez_compressed(save_path_1, mask=mask1.astype(np.uint8), frame_id=frame_id_1)
                 np.savez_compressed(save_path_2, mask=mask2.astype(np.uint8), frame_id=frame_id_2)
 
-    # 4. remove all raw images
     if save:
         for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Removing raw images"):
             cam1_paths, cam2_paths = get_images_paths_from_log(row)
@@ -408,20 +414,33 @@ def preprocess_images(logs, alpha=0.3, threshold=0.05, margin=20, target_shape=(
 
     return all_masks_cam1, all_masks_cam2
 
+def get_frame_id_from_path(path):
+    """Extract frame ID from image path, specifically the number after 'frameID_'."""
+    filename = Path(path).stem  # e.g. "II_frameID_89image90"
+
+    # Split at 'frameID_'
+    if "frameID_" not in filename:
+        raise ValueError("Filename does not contain 'frameID_'")
+
+    after_tag = filename.split("frameID_")[1]  # "89image90"
+
+    # Extract leading digits only (stop before 'image')
+    digits = ""
+    for ch in after_tag:
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+
+    return int(digits)
+
 if __name__ == "__main__":
-    from .load_data import list_logs
+    from .load_data import list_logs, get_anat_logs, get_conical_logs
     from . import paths 
     heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
     heads_rename = ["timestamps", "force_sensor_v"]
     f_s = 1000
     fss = 568.5
-    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
+    log_names = get_conical_logs()
     preprocess_images(log_names, save=True)
 
-def get_frame_id_from_path(path):
-    """Extract frame ID from image path."""
-    filename = Path(path).stem  # e.g. "frameID_5image5"
-    parts = filename.split("_")  # ["frameID", "5image5"]
-    raw_frame = parts[1] if len(parts) > 1 else parts[0]
-    frame_id = ''.join(filter(str.isdigit, raw_frame))  # keep only digits
-    return int(frame_id)

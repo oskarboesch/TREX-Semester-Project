@@ -4,7 +4,7 @@
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
 #SBATCH --gres=gpu:2
-#SBATCH --mem=64G
+#SBATCH --mem=128G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 #SBATCH --output=logs/preprocess_%A_%a.out

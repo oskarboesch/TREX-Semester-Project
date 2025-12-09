@@ -7,8 +7,8 @@
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --output=logs/fit_gru_%A_%a.out
-#SBATCH --error=logs/fit_gru_%A_%a.err
+#SBATCH --output=logs/fit_%A_%a.out
+#SBATCH --error=logs/fit_%A_%a.err
 
 # ============================
 #    Argument Parsing
