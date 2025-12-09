@@ -112,7 +112,6 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
     Returns:
         None (modifies data_fit and data_fit_plot in place)
     """
-
     # Parameters
     f_s = 1000  # Sampling rate
     head = "force_sensor_mN"
@@ -121,6 +120,9 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
     start_time = time.time()
 
     for i, df in tqdm(enumerate(data_fit)):
+        if df.empty:
+            print(f"Warning: DataFrame {i} is empty. Skipping preprocessing for this log.")
+            continue
         df = reset_timestamps(df, fs=f_s)
         ydata = df[head].values
         df[head] = filter(ydata, sampling_rate=f_s, filter_order=3, cutoff_freq=10)
@@ -131,6 +133,10 @@ def preprocess_logs_old(logs_fit, data_fit, data_fit_plot):
         else:
             range_crop = [2, 0]
         df_cropped = crop_data(df, df["timestamps"], range_crop)
+        if df_cropped.empty:
+            print(f"Warning: DataFrame {i} is empty after cropping. Skipping preprocessing for this log.")
+            data_fit[i] = df
+            continue
         data_fit_plot[i] = df_cropped.copy()  # Not downsampled
 
         # Downsample
@@ -435,12 +441,12 @@ def get_frame_id_from_path(path):
     return int(digits)
 
 if __name__ == "__main__":
-    from .load_data import list_logs, get_anat_logs, get_conical_logs
+    from .load_data import list_logs, get_anat_logs, get_conical_logs, get_without_clot_logs
     from . import paths 
     heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
     heads_rename = ["timestamps", "force_sensor_v"]
     f_s = 1000
     fss = 568.5
-    log_names = get_conical_logs()
+    log_names = get_without_clot_logs()
     preprocess_images(log_names, save=True)
 

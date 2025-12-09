@@ -14,13 +14,12 @@ from utils.config_loader import load_config
 paths.ensure_directories()
 
 
-def fit(data_cfg, fit_cfg, model_cfg):
+def fit(data_cfg, fit_cfg, model_cfg, log_names):
     RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     torch_generator = set_seed(data_cfg["seed"])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load Data
-    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
     if data_cfg["direction"] != "Both":
         log_names = log_names[log_names["direction"] == data_cfg["direction"]].reset_index(drop=True)
     print(f"Total logs for {data_cfg['direction']} direction: {len(log_names)}")
@@ -84,9 +83,10 @@ def main():
     argparser.add_argument("--fit_config", type=str, required=True, help="Path to fit configuration file")
     argparser.add_argument("--model_config", type=str, required=True, help="Path to model configuration file")
     args = argparser.parse_args()
+    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
 
     data_cfg, fit_cfg, model_cfg = load_config(args.data_config, args.fit_config, args.model_config)
-    fit(data_cfg, fit_cfg, model_cfg)
+    fit(data_cfg, fit_cfg, model_cfg, log_names)
 
 if __name__ == "__main__":
     main()

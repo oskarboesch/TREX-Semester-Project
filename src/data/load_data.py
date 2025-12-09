@@ -302,6 +302,8 @@ def get_images_paths_from_log(log, processed=False):
     if processed:
         folder = Path(str(folder).replace('raw', 'processed'))
         print(folder)
+        # print content of folder
+        print(list(folder.glob("*")))
         cam1_paths = sorted(folder.glob("frameID_*_mask.npz"), key=extract_number)
         cam2_paths = sorted(folder.glob("II_frameID_*_mask.npz"), key=extract_number)
         if cam1_paths == [] or cam2_paths == []:

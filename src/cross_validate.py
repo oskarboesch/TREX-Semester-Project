@@ -1,7 +1,7 @@
 import numpy as np
 import wandb
 from datetime import datetime
-from data.load_data import list_logs
+import data.load_data as ld
 import data.paths as paths
 import argparse
 from models.gru import GRUClassifier, train_gru_model, evaluate_gru_model
@@ -17,7 +17,7 @@ import itertools
 paths.ensure_directories()
 
 
-def cross_validate(data_cfg, fit_cfg, model_cfg, search_space):
+def cross_validate(data_cfg, fit_cfg, model_cfg, search_space, log_names):
 
 
     RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -36,7 +36,6 @@ def cross_validate(data_cfg, fit_cfg, model_cfg, search_space):
     all_results = []
 
     # Load Data
-    log_names = list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
     if data_cfg["direction"] != "Both":
         log_names = log_names[log_names["direction"] == data_cfg["direction"]].reset_index(drop=True)
     print(f"Total logs for {data_cfg['direction']} direction: {len(log_names)}")
@@ -171,7 +170,14 @@ def main():
     }
     if "images" in data_cfg["features"]:
         search_space["emb_dim"] = [1, 4]
-    cross_validate(data_cfg, fit_cfg, model_cfg, search_space)
+
+    paper_log_names = ld.get_paper_logs()
+    anat_log_names = ld.get_anat_logs()
+    conical_log_names = ld.get_conical_logs()
+
+    cross_validate(data_cfg, fit_cfg, model_cfg, search_space, paper_log_names)
+    cross_validate(data_cfg, fit_cfg, model_cfg, search_space, anat_log_names)
+    cross_validate(data_cfg, fit_cfg, model_cfg, search_space, conical_log_names)
 
 
 if __name__ == "__main__":
