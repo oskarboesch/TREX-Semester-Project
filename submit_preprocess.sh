@@ -10,6 +10,9 @@
 #SBATCH --output=logs/preprocess_%A_%a.out
 #SBATCH --error=logs/preprocess_%A_%a.err
 
+# paper, conical or anatomical
+MODE=$1
+
 cd ~/TREX-Semester-Project/src
 
 # Load modules or activate conda environment
@@ -25,4 +28,4 @@ fi
 conda activate trex_env
 
 # Run the script
-python -m data.preprocess_data
+python -m data.preprocess_data --mode "$MODE"

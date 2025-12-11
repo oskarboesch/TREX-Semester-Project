@@ -241,12 +241,6 @@ class SensorDataset(Dataset):
         plt.legend()
         plt.show()
 
-    def plot_all_signals(self):
-        import matplotlib.pyplot as plt
-
-        for idx in range(len(self.samples)):
-            self.plot_signal(idx)
-
     def print_start_end_times(self, idx):
         # Start and end time are defined by first switch from 0 to 1 and from 1 to 0 of labels
         x, mask, y = self.samples[idx]
@@ -270,6 +264,121 @@ class SensorDataset(Dataset):
 
         print(f"At index {idx}, start time: {start_time}, end time: {end_time}, path: {self.paths[idx]}")
 
-    def print_all_start_end_times(self):
-        for idx in range(len(self.samples)):
-            self.print_start_end_times(idx)
+    def plot(self):
+        """
+        Plot all preprocessed force sensor signals grouped by direction.
+        This version is fully self-contained and does not rely on undefined external variables.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import pandas as pd
+        from matplotlib.lines import Line2D
+
+        
+        plot_rows = []
+
+        # Build a unified dataframe
+        for i, (x, _, y) in enumerate(self.samples):
+            # skip augmented samples (they have identical path indices)
+            if i >= len(self.paths):
+                break
+
+            path_info = self.paths[i]
+            if "Forward" in path_info:
+                direction = "Forward"
+            else:
+                direction = "Backwards"
+
+            # rebuild timestamps
+            time = np.arange(x.shape[0]) / self.downsampling_freq
+            force = x[:, 0] * self.std_force + self.mean_force
+
+            plot_rows.append(pd.DataFrame({
+                "timestamps": time,
+                "force_sensor_mN": force,
+                "log_index": i,
+                "direction": direction,
+                "label": y[:, 0]
+            }))
+
+        plot_df = pd.concat(plot_rows, ignore_index=True)
+
+        # Plot by direction
+        for direction in plot_df["direction"].unique():
+            plt.figure(figsize=(12, 6))
+            dir_df = plot_df[plot_df["direction"] == direction]
+
+            sns.lineplot(
+                data=dir_df,
+                x="timestamps",
+                y="force_sensor_mN",
+                hue="log_index",
+                palette="tab20",
+                alpha=0.6,
+                legend=False
+            )
+
+            # Add start/end label times as vertical lines
+            for log_idx in dir_df["log_index"].unique():
+                df_sub = dir_df[dir_df["log_index"] == log_idx]
+
+                y_vals = df_sub["label"].values
+                t_vals = df_sub["timestamps"].values
+
+                transitions = np.diff(y_vals.astype(int))
+
+                start_idx = np.where(transitions == 1)[0]
+                end_idx = np.where(transitions == -1)[0]
+
+                if len(start_idx) > 0:
+                    plt.axvline(t_vals[start_idx[0] + 1], color="green", linestyle="--", alpha=0.1)
+
+                if len(end_idx) > 0:
+                    # choose first end after start
+                    e = end_idx[end_idx > start_idx[0]] if len(start_idx) > 0 else end_idx
+                    if len(e) > 0:
+                        plt.axvline(t_vals[e[0] + 1], color="red", linestyle="--", alpha=0.1)
+
+            plt.title(f"Preprocessed Force Sensor Data — {direction}", fontsize=14)
+            plt.xlabel("Time [s]", fontsize=12)
+            plt.ylabel("Force Sensor [mN]", fontsize=12)
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            # add legend for vertical lines red end and green start
+            legend_elements = [
+                Line2D([0], [0], color='green', linestyle='--', label='Start of Clot'),
+                Line2D([0], [0], color='red', linestyle='--', label='End of Clot'),
+            ]
+
+            plt.legend(handles=legend_elements, loc='upper right')
+            plt.show()
+
+    def plot_example_images(self):
+        import matplotlib.pyplot as plt
+
+        # Find first sample with images
+        for i, (x, masks, y) in enumerate(self.samples):
+            if masks is not None:
+                break
+
+        if masks is None:
+            print("No image data available in this dataset.")
+            return
+
+        num_frames = min(5, masks.shape[0])
+        # take frame index in the full range of masks
+        frame_indices = np.linspace(0, masks.shape[0] - 1, num_frames, dtype=int)
+        plt.figure(figsize=(12, 6))
+        for j in range(num_frames):
+            plt.subplot(2, num_frames, j + 1)
+            plt.imshow(masks[frame_indices[j], 0, :, :], cmap='gray')
+            plt.title(f'Camera 1 - Frame {frame_indices[j]}')
+            plt.axis('off')
+
+            plt.subplot(2, num_frames, j + 1 + num_frames)
+            plt.imshow(masks[frame_indices[j], 1, :, :], cmap='gray')
+            plt.title(f'Camera 2 - Frame {frame_indices[j]}')
+            plt.axis('off')
+
+        plt.tight_layout()
+        plt.show()

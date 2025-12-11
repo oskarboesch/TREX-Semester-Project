@@ -7,8 +7,8 @@
 #SBATCH --mem=64G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --output=logs/main.out
-#SBATCH --error=logs/main.err
+#SBATCH --output=logs/main%j.out
+#SBATCH --error=logs/main%j.err
 
 # ============================
 #    Environment Setup

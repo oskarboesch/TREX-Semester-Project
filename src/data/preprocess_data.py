@@ -366,7 +366,6 @@ def preprocess_images(logs, alpha=0.01, threshold=0.05, margin=20, target_shape=
 
     # 1. Load, rotate, downsample, compute masks
     for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Preprocessing images"):
-        print(f"Processing the images of log {idx+1}/{len(logs)}: {row['path']}")
         cam1_paths, cam2_paths = get_images_paths_from_log(row)
         cam1_imgs = load_and_preprocess_images(cam1_paths, rotate_code=cv2.ROTATE_90_CLOCKWISE)
         cam2_imgs = load_and_preprocess_images(cam2_paths, rotate_code=cv2.ROTATE_180)
@@ -441,12 +440,23 @@ def get_frame_id_from_path(path):
     return int(digits)
 
 if __name__ == "__main__":
-    from .load_data import list_logs, get_anat_logs, get_conical_logs, get_without_clot_logs, get_paper_logs
-    from . import paths 
-    heads_keep = ["timestamp [s]", "Force sensor voltage [V]"]
-    heads_rename = ["timestamps", "force_sensor_v"]
-    f_s = 1000
-    fss = 568.5
-    log_names = get_paper_logs()
+    # get string paper, anatomical or conical from args
+    import sys
+    import data.load_data as ld
+    import argparse
+    parser = argparse.ArgumentParser(description="Preprocess images for specified dataset.")
+    parser.add_argument('--mode', type=str, required=True, help="Dataset mode: 'paper', 'anatomical', or 'conical'")
+    args = parser.parse_args()
+
+    if args.mode not in ['paper', 'anatomical', 'conical']:
+        raise ValueError("Mode must be 'paper', 'anatomical' or 'conical'")
+    
+    if args.mode == 'paper':
+        log_names, _ = ld.get_paper_logs()
+    elif args.mode == 'anatomical':
+        log_names, _ = ld.get_anat_logs()
+    else:
+        log_names, _ = ld.get_conical_logs()
+
     preprocess_images(log_names, save=True)
 
