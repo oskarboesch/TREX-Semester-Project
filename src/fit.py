@@ -76,6 +76,7 @@ def fit(data_cfg, fit_cfg, model_cfg, log_names):
     with open(save_folder / "complete_config.yml", "w") as f:
         yaml.dump(complete_config, f)
 
+    return model_save_path
 def main():
 
     argparser = argparse.ArgumentParser(description="Fit models to experimental data.")

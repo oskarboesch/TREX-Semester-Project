@@ -14,30 +14,24 @@ import cv2
 import torch
 
 def get_paper_logs():
-    return list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER)
+    return list_logs(paths.PAPER_EXPERIMENT_DATA_FOLDER), "paper_log"
 
 def get_extra_logs():
-    return list_logs(paths.EXTRA_DATA_FOLDER)
+    return list_logs(paths.EXTRA_DATA_FOLDER), "extra_log"
 
-def get_anat_logs():
-    experiment_config = ExperimentConfig(model="Anatomical", placement="All", wire="All", technique="All", clot="With")
-    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+def get_anat_logs(bent = False, twist = False, with_clot = True):
+    wire = "Bent" if bent else "Straight"
+    technique = "Twist" if twist else "No_Twist"
+    clot = "With" if with_clot else "Without"
+    experiment_config = ExperimentConfig(model="Anatomical", placement="All", wire=wire, technique=technique, clot=clot)
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config), experiment_config.get_folder()
 
-def get_conical_logs():
-    experiment_config = ExperimentConfig(model="Conical", placement="All", wire="All", technique="All", clot="With")
-    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
-
-def get_bent_logs():
-    experiment_config = ExperimentConfig(model="All", placement="All", wire="Bent", technique="All", clot="With")
-    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
-
-def get_twist_logs():
-    experiment_config = ExperimentConfig(model="All", placement="All", wire="All", technique="Twist", clot="With")
-    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
-
-def get_without_clot_logs():
-    experiment_config = ExperimentConfig(model="All", placement="All", wire="All", technique="All", clot="Without")
-    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config)
+def get_conical_logs(bent = False, twist = False, with_clot = True):
+    wire = "Bent" if bent else "Straight"
+    technique = "Twist" if twist else "No_Twist"
+    clot = "With" if with_clot else "Without"
+    experiment_config = ExperimentConfig(model="Conical", placement="All", wire=wire, technique=technique, clot=clot)
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=experiment_config), experiment_config.get_folder()
 
 def list_logs(path_data, dts_45=None, experiment_config: ExperimentConfig = None):
     """

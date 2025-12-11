@@ -168,7 +168,7 @@ def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq,
     precision = precision_score(all_targets, all_outputs)
     recall = recall_score(all_targets, all_outputs)
     f1 = f1_score(all_targets, all_outputs)
-    print(f'Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}', file=sys.stderr)
+    print(f'Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}, start_accuracy: {np.mean(start_accuracies):.4f}, end_accuracy: {np.mean(end_accuracies):.4f}')
     return loss/len(test_loader), accuracy, precision, recall, f1, start_accuracies, end_accuracies
             
 
@@ -203,3 +203,21 @@ def start_end_accuracy(pred, true , downsampling_freq, tolerance=1.5):
     pred = pred[0]
     true = true[0]
     return abs(pred - true) <= tolerance * downsampling_freq
+
+def load_gru_model(model_path, input_size, model_cfg, device):
+    # create model instance with SAME parameters used during training
+    model = GRUClassifier(
+        input_size=input_size,
+        hidden_size=model_cfg["hidden_size"],
+        num_layers=model_cfg["num_layers"],
+        output_size=1,
+        dropout=model_cfg["dropout"],
+        with_images=model_cfg.get("with_images", False)
+    ).to(device)
+
+    # load weights
+    state = torch.load(model_path, map_location=device)
+    model.load_state_dict(state)
+
+    model.eval()  # important
+    return model

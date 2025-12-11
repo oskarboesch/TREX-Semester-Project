@@ -7,3 +7,6 @@ class ExperimentConfig:
     wire: str           # "Bent" or "Straight"
     technique: str      # "Twist" or "No_Twist"
     clot: str          # "With" or "Without"
+
+    def get_folder(self) -> str:
+        return f"{self.model}/{self.placement}/{self.wire}/{self.technique}/{self.clot}"

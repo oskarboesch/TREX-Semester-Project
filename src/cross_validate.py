@@ -68,6 +68,8 @@ def cross_validate(data_cfg, fit_cfg, model_cfg, search_space, log_names):
     for result in all_results:
         print(result)
 
+    return best_params, best_score, all_results
+
 
 
 def run_kfold_cv(hparams, train_log_names, K, data_cfg, fit_cfg, model_cfg, device, torch_generator):
@@ -171,12 +173,17 @@ def main():
     if "images" in data_cfg["features"]:
         search_space["emb_dim"] = [1, 4]
 
-    paper_log_names = ld.get_paper_logs()
-    anat_log_names = ld.get_anat_logs()
-    conical_log_names = ld.get_conical_logs()
-
+    paper_log_names, _ = ld.get_paper_logs()
+    anat_log_names, _ = ld.get_anat_logs()
+    conical_log_names, _ = ld.get_conical_logs()
+    print("="*50)
+    print("Cross validation with paper logs")
     cross_validate(data_cfg, fit_cfg, model_cfg, search_space, paper_log_names)
+    print("="*50)
+    print("Cross validation with anatomical logs")
     cross_validate(data_cfg, fit_cfg, model_cfg, search_space, anat_log_names)
+    print("="*50)
+    print("Cross validation with conical logs")
     cross_validate(data_cfg, fit_cfg, model_cfg, search_space, conical_log_names)
 
 

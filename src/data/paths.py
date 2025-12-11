@@ -11,6 +11,7 @@ RESULTS_FOLDER = BASEPATH / "results/"
 FIGURES_FOLDER = BASEPATH / "figures/"
 MODELS_FOLDER = BASEPATH / "models/"
 GRU_RESULTS_FOLDER = RESULTS_FOLDER / "gru_results/"
+EVALUATION_RESULTS_FOLDER = RESULTS_FOLDER / "evaluation_results/"
 CONFIG_FOLDER = BASEPATH / "configs/"
 DATA_CONFIG_FOLDER = CONFIG_FOLDER / "data/"
 FIT_CONFIG_FOLDER = CONFIG_FOLDER / "fit/"
@@ -28,7 +29,12 @@ def ensure_directories():
         FIGURES_FOLDER,
         MODELS_FOLDER,
         GRU_RESULTS_FOLDER,
-        CONFIG_FOLDER
+        EVALUATION_RESULTS_FOLDER,
+        CONFIG_FOLDER, 
+        DATA_CONFIG_FOLDER,
+        FIT_CONFIG_FOLDER,
+        MODEL_CONFIG_FOLDER
+
     ]:
         folder.mkdir(parents=True, exist_ok=True)
 

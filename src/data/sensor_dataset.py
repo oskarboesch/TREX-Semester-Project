@@ -14,6 +14,7 @@ class SensorDataset(Dataset):
         self.sample_weights = None
         self.features = features
         self.with_augmentation = with_augmentation
+        self.downsampling_freq = downsampling_freq
         self.check_features()
 
         heads_keep = ["timestamp [s]", "Force sensor voltage [V]", "Camera trigger signal"]
@@ -31,6 +32,7 @@ class SensorDataset(Dataset):
 
         self.samples = []
         self.register_mean_and_std(data_fit, mean_force=mean_force, std_force=std_force)
+        self.register_paths(log_names)
 
 
         if with_kde_weighting:
@@ -72,6 +74,10 @@ class SensorDataset(Dataset):
                 raise ValueError("mean_force and std_force must be provided for eval mode")
             self.mean_force = np.mean([df['force_sensor_mN'].mean() for df in data])
             self.std_force = np.mean([df['force_sensor_mN'].std() for df in data])
+
+    def register_paths(self, data):
+        # get the columns paths of the df, take only last element
+        self.paths = data['path'].tolist()
 
     def register_weights(self, labels):
         if self.mode=='eval':
@@ -219,3 +225,51 @@ class SensorDataset(Dataset):
             self.sample_weights = np.append(self.sample_weights, self.sample_weights[i])
             self.sample_weights = np.append(self.sample_weights, self.sample_weights[i])
             self.sample_weights = np.append(self.sample_weights, self.sample_weights[i])
+
+    def plot_signal(self, idx):
+        import matplotlib.pyplot as plt
+
+        x, masks, y = self.samples[idx]
+        time = np.arange(x.shape[0])
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(time, x[:, 0] * self.std_force + self.mean_force, label='Force Sensor [mN]')
+        plt.fill_between(time, 0, 1, where=y[:, 0]==1, color='red', alpha=0.3, transform=plt.gca().get_xaxis_transform(), label='In Clot')
+        plt.xlabel('Time [samples]')
+        plt.ylabel('Force [mN]')
+        plt.title('Force Sensor Signal with In-Clot Regions')
+        plt.legend()
+        plt.show()
+
+    def plot_all_signals(self):
+        import matplotlib.pyplot as plt
+
+        for idx in range(len(self.samples)):
+            self.plot_signal(idx)
+
+    def print_start_end_times(self, idx):
+        # Start and end time are defined by first switch from 0 to 1 and from 1 to 0 of labels
+        x, mask, y = self.samples[idx]
+        time = np.arange(y.shape[0]) / self.downsampling_freq
+
+        # Find transitions
+        y = y[:, 0]
+        transitions = np.diff(y.astype(int))
+
+        # Start time: first 0 → 1 transition
+        start_idx = np.where(transitions == 1)[0]
+        start_time = time[start_idx[0] + 1] if len(start_idx) > 0 else None
+
+        # End time: first 1 → 0 transition after the start
+        if start_time is not None:
+            end_idx = np.where(transitions == -1)[0]
+            end_idx = end_idx[end_idx > start_idx[0]]  # must occur after start
+            end_time = time[end_idx[0] + 1] if len(end_idx) > 0 else None
+        else:
+            end_time = None
+
+        print(f"At index {idx}, start time: {start_time}, end time: {end_time}, path: {self.paths[idx]}")
+
+    def print_all_start_end_times(self):
+        for idx in range(len(self.samples)):
+            self.print_start_end_times(idx)

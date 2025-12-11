@@ -177,7 +177,7 @@ def preprocess_log(df, head, direction, sampling_rate=1000, filter_order=3, down
 
     # Crop bounds
     if direction == "Forward":
-        n = np.random.uniform(1, 8)
+        n = np.random.uniform(1, 5)
         range_crop = [n, 0]
     else:
         range_crop = [2, 0]
