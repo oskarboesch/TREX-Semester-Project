@@ -77,7 +77,7 @@ class SensorDataset(Dataset):
 
     def register_paths(self, data):
         # get the columns paths of the df, take only last element
-        self.paths = data['path'].tolist()
+        self.paths = data['path'].tolist()        
 
     def register_weights(self, labels):
         if self.mode=='eval':

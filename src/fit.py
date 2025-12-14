@@ -43,12 +43,15 @@ def fit(data_cfg, fit_cfg, model_cfg, log_names):
     optimizer = torch.optim.Adam(gru_model.parameters(), lr=fit_cfg["learning_rate"], weight_decay=fit_cfg["weight_decay"])
     print(f"Fitting {data_cfg['direction']} gru model with {fit_cfg['num_epochs']} epochs on {device}...")
     if fit_cfg.get("log", False):
-        wandb.init(project="gru_model_fitting", name="GRU_Fit_" + RUN_ID)
-        wandb.config.update({**data_cfg, **fit_cfg, **model_cfg})
+        wandb.init(
+            project="gru_model_fitting",
+            name="GRU_Fit_" + RUN_ID,
+            config={**data_cfg, **fit_cfg, **model_cfg}
+        )
     train_gru_model(gru_model, train_loader, criterion, optimizer, fit_cfg["num_epochs"], device, downsampling_freq=data_cfg["downsampling_freq"], threshold=fit_cfg["threshold"], log=fit_cfg.get("log", False), test_loader=test_loader)
 
     # save model
-    model_save_path = paths.MODELS_FOLDER / f"gru_{data_cfg['direction'].lower()}_model_{RUN_ID}.pt"
+    model_save_path = paths.MODELS_FOLDER / f"gru_model_{RUN_ID}.pt"
     torch.save(gru_model.state_dict(), model_save_path)
     print(f"Model saved to {model_save_path}")
 
@@ -72,6 +75,9 @@ def fit(data_cfg, fit_cfg, model_cfg, log_names):
         plt.close()
     # save a complete config used for this run
     complete_config = {**data_cfg, **fit_cfg, **model_cfg}
+
+    if fit_cfg.get("log", False):
+        wandb.finish()
     import yaml
     with open(save_folder / "complete_config.yml", "w") as f:
         yaml.dump(complete_config, f)

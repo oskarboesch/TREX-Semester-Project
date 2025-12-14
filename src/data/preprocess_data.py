@@ -277,11 +277,16 @@ def get_label_timeseries(labels, logs):
         start_time = labels[i]['Start'].values[0]
         end_time = labels[i]['End'].values[0]
 
+        
+        if np.isnan(start_time) or np.isnan(end_time):
+            clot_timeseries.append(pd.DataFrame({
+                "timestamps": log["timestamps"],
+                "in_clot": log_clot_timeseries
+            }))
+            continue
+
         if start_time >= end_time:
             start_time, end_time = end_time, start_time
-
-        
-
         # Set binary values for time steps within the clot
         log_clot_timeseries[(log["timestamps"] >= start_time) & (log["timestamps"] <= end_time)] = 1
 
@@ -366,6 +371,7 @@ def preprocess_images(logs, alpha=0.01, threshold=0.05, margin=20, target_shape=
 
     # 1. Load, rotate, downsample, compute masks
     for idx, row in tqdm(logs.iterrows(), total=len(logs), desc="Preprocessing images"):
+        print(f"Preprocessing log {idx+1}/{len(logs)}: {row['path']}")
         cam1_paths, cam2_paths = get_images_paths_from_log(row)
         cam1_imgs = load_and_preprocess_images(cam1_paths, rotate_code=cv2.ROTATE_90_CLOCKWISE)
         cam2_imgs = load_and_preprocess_images(cam2_paths, rotate_code=cv2.ROTATE_180)
@@ -454,9 +460,9 @@ if __name__ == "__main__":
     if args.mode == 'paper':
         log_names, _ = ld.get_paper_logs()
     elif args.mode == 'anatomical':
-        log_names, _ = ld.get_anat_logs()
+        log_names, _ = ld.get_all_anatomical_logs()
     else:
-        log_names, _ = ld.get_conical_logs()
+        log_names, _ = ld.get_all_conical_logs()
 
-    preprocess_images(log_names, save=True)
+    preprocess_images(log_names, save=True, delete=False)
 

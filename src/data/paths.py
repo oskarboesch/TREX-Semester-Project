@@ -17,7 +17,6 @@ DATA_CONFIG_FOLDER = CONFIG_FOLDER / "data/"
 FIT_CONFIG_FOLDER = CONFIG_FOLDER / "fit/"
 MODEL_CONFIG_FOLDER = CONFIG_FOLDER / "model/"
 
-
 def ensure_directories():
     """Ensure that all necessary directories exist."""
     for folder in [

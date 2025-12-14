@@ -19,6 +19,12 @@ def get_paper_logs():
 def get_extra_logs():
     return list_logs(paths.EXTRA_DATA_FOLDER), "extra_log"
 
+def get_all_anatomical_logs():
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=ExperimentConfig(model="Anatomical", placement="All", wire="All", technique="All", clot="All")), "all_anatomical_logs"
+
+def get_all_conical_logs():
+    return list_logs(paths.EXTRA_DATA_FOLDER, experiment_config=ExperimentConfig(model="Conical", placement="All", wire="All", technique="All", clot="All")), "all_conical_logs"
+
 def get_anat_logs(bent = False, twist = False, with_clot = True):
     wire = "Bent" if bent else "Straight"
     technique = "Twist" if twist else "No_Twist"
@@ -44,6 +50,10 @@ def list_logs(path_data, dts_45=None, experiment_config: ExperimentConfig = None
     Returns:
         pd.DataFrame: logs table with extracted information
     """
+    if experiment_config is None:
+        print("Listing all logs withtout specific configuration filtering.")
+    else : 
+        print(f"Listing logs with configuration filtering: {experiment_config}")
     path_data = Path(path_data)
     # Recursively list all CSV files
     log_files = list(path_data.rglob("*.csv"))
@@ -211,6 +221,9 @@ def load_labels(logs):
     labels = []
 
     for idx, row in logs.iterrows():
+        if row["clot_presence"] == "Without":
+            labels.append(pd.DataFrame({"Start": [np.nan], "End": [np.nan]}, index=[idx]))
+            continue
         # Load marker data
         # Only extract value for keys 'Start' and 'End'
         mat = loadmat(row["path_markers"])
