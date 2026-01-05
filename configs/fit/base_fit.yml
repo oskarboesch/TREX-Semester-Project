@@ -6,3 +6,4 @@ threshold: 0.9
 test_size_ratio: 0.2
 with_kde_weighting: true
 log: false
+patience: 50

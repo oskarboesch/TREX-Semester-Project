@@ -1,5 +1,5 @@
 direction: Forward
-downsampling_freq: 20
+downsampling_freq: 10
 seed: 42
 features: 
   - signal

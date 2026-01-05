@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fit_cv
+#SBATCH --job-name=main
 #SBATCH --time=48:00:00
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
