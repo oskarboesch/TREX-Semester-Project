@@ -36,7 +36,7 @@ def fit(data_cfg, fit_cfg, model_cfg, log_names):
     # Define model
     input_size = train_dataset.input_size
     print(f"Input size: {input_size}")
-    gru_model = GRUClassifier(input_size=input_size, hidden_size=model_cfg["hidden_size"], num_layers=model_cfg["num_layers"], output_size=1, dropout=model_cfg["dropout"], with_images=("images" in data_cfg["features"])).to(device)
+    gru_model = GRUClassifier(input_size=input_size, hidden_size=model_cfg["hidden_size"], num_layers=model_cfg["num_layers"], output_size=1, dropout=model_cfg["dropout"], with_images=("images" in data_cfg["features"]), emb_dim=model_cfg.get("emb_dim", 1)).to(device)
 
     # Train 
     criterion = torch.nn.BCELoss()
@@ -48,7 +48,7 @@ def fit(data_cfg, fit_cfg, model_cfg, log_names):
             name="GRU_Fit_" + RUN_ID,
             config={**data_cfg, **fit_cfg, **model_cfg}
         )
-    train_gru_model(gru_model, train_loader, criterion, optimizer, fit_cfg["num_epochs"], device, downsampling_freq=data_cfg["downsampling_freq"], threshold=fit_cfg["threshold"], log=fit_cfg.get("log", False), test_loader=test_loader)
+    train_gru_model(gru_model, train_loader, criterion, optimizer, fit_cfg["num_epochs"], device, downsampling_freq=data_cfg["downsampling_freq"], threshold=fit_cfg["threshold"], log=fit_cfg.get("log", False), test_loader=test_loader, patience=fit_cfg.get("patience", None))
 
     # save model
     model_save_path = paths.MODELS_FOLDER / f"gru_model_{RUN_ID}.pt"

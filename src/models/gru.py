@@ -185,7 +185,69 @@ def evaluate_gru_model(model, test_loader, device, criterion, downsampling_freq,
     f1 = f1_score(all_targets, all_outputs)
     print(f'Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}, start_accuracy: {np.mean(start_accuracies):.4f}, end_accuracy: {np.mean(end_accuracies):.4f}')
     return loss/len(test_loader), accuracy, precision, recall, f1, start_accuracies, end_accuracies
-            
+
+def evaluate_dummy_model(test_loader, start_idx, end_idx, downsampling_freq=10, save_folder=None, threshold=0.9):
+    """
+    Evaluate a dummy model that predicts a fixed label for all samples.
+
+    Args:
+        test_loader: DataLoader returning (inputs, masks, targets, _) like your original loader
+        dummy_label: int, label to always predict (0 or 1)
+        downsampling_freq: for start/end accuracy computation
+        save_folder: optional, path to save evaluation plots
+
+    Returns:
+        accuracy, precision, recall, f1, start_accuracies, end_accuracies
+    """
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+    all_targets = []
+    all_outputs = []
+    start_accuracies = []
+    end_accuracies = []
+
+    for batch_i, (inputs, masks, targets, _) in enumerate(test_loader):
+        # move to CPU and convert to numpy
+        targets = targets.cpu().numpy().squeeze()
+
+        # create dummy predictions
+        preds_bin = np.zeros_like(targets)
+        preds_bin[start_idx:end_idx] = 1
+        
+
+        all_targets.extend(targets.tolist())
+        all_outputs.extend(preds_bin.tolist())
+
+        # Optional plotting if you have a plotting function
+        if save_folder:
+            inputs_np = inputs.cpu().numpy().squeeze()
+            masks_np = masks.cpu().numpy().squeeze()
+            plot_eval(inputs_np, masks_np, targets, preds_bin, downsampling_freq,
+                      save_path=save_folder / f'dummy_eval_{batch_i+1}.png')
+
+        # Compute start & end accuracies
+        true_start_time = np.where(np.diff(targets) == 1)[0]
+        pred_start_time = np.where(np.diff(preds_bin) == 1)[0]
+        true_start_time = true_start_time + 1 if len(true_start_time) > 0 else None
+        pred_start_time = pred_start_time + 1 if len(pred_start_time) > 0 else None
+        start_accuracies.append(start_end_accuracy(pred_start_time, true_start_time, downsampling_freq))
+
+        true_end_time = np.where(np.diff(targets) == -1)[0]
+        pred_end_time = np.where(np.diff(preds_bin) == -1)[0]
+        true_end_time = true_end_time + 1 if len(true_end_time) > 0 else None
+        pred_end_time = pred_end_time + 1 if len(pred_end_time) > 0 else None
+        end_accuracies.append(start_end_accuracy(pred_end_time, true_end_time, downsampling_freq))
+
+    # Compute overall metrics
+    accuracy = accuracy_score(all_targets, all_outputs)
+    precision = precision_score(all_targets, all_outputs, zero_division=0)
+    recall = recall_score(all_targets, all_outputs, zero_division=0)
+    f1 = f1_score(all_targets, all_outputs, zero_division=0)
+
+    print(f"Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}")
+    print(f"Start Accuracy: {np.mean(start_accuracies):.4f}, End Accuracy: {np.mean(end_accuracies):.4f}")
+
+    return accuracy, precision, recall, f1, start_accuracies, end_accuracies        
 
 
 def plot_eval(inputs, masks, targets, outputs, downsampling_freq, save_path):
@@ -248,6 +310,7 @@ def start_end_accuracy(pred, true , downsampling_freq, tolerance=1.5):
     return abs(pred - true) <= tolerance * downsampling_freq
 
 def load_gru_model(model_path, input_size, cfg, device):
+    print(f"Loading GRU model from {model_path} with config: {cfg}")
     model = GRUClassifier(
         input_size=input_size,
         hidden_size=cfg["hidden_size"],

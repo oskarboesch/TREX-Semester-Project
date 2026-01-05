@@ -224,7 +224,7 @@ def compute_band_power(df_raw, head, fs, n_bands=10):
     from scipy.signal import spectrogram
     signal = df_raw[head].values
     window_size = fs//2  # 0.5 second windows
-    overlap = window_size - 50  # 50 sample step because of 1000 Hz to 20 Hz downsampling
+    overlap = window_size - 100  # 100 sample step because of 1000 Hz to 10 Hz downsampling
     step_size = window_size - overlap
     num_windows = (len(df_raw) - overlap) // step_size
     band_powers_sliding = np.zeros((num_windows, n_bands))  # 3 bands

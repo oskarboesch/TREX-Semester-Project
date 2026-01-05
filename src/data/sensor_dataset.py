@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 from data.load_data import load_data, load_labels
+from models.gru import evaluate_dummy_model
 from data.preprocess_data import preprocess_logs, get_label_timeseries, get_images_paths_from_log, get_frame_id_from_path
 from sklearn.neighbors import KernelDensity
 import numpy as np
@@ -85,7 +86,11 @@ class SensorDataset(Dataset):
         # compute sample weights from training set only
 
         for label in labels:
-            length = label['End'].values - label['Start'].values
+            # check if values are all nan
+            if label['Start'].isna().all() or label['End'].isna().all():
+                length = np.array([0])
+            else:
+                length = label['End'].values - label['Start'].values
             self.lengths.extend(length.tolist())
         self.kde = KernelDensity(kernel='gaussian', bandwidth=2).fit(np.array(self.lengths).reshape(-1, 1))
         self.sample_weights = []
@@ -226,7 +231,7 @@ class SensorDataset(Dataset):
             self.sample_weights = np.append(self.sample_weights, self.sample_weights[i])
             self.sample_weights = np.append(self.sample_weights, self.sample_weights[i])
 
-    def plot_signal(self, idx):
+    def plot_signal(self, idx, label=False):
         import matplotlib.pyplot as plt
 
         x, masks, y = self.samples[idx]
@@ -234,10 +239,36 @@ class SensorDataset(Dataset):
 
         plt.figure(figsize=(12, 6))
         plt.plot(time, x[:, 0] * self.std_force + self.mean_force, label='Force Sensor [mN]')
-        plt.fill_between(time, 0, 1, where=y[:, 0]==1, color='red', alpha=0.3, transform=plt.gca().get_xaxis_transform(), label='In Clot')
+        if label:
+            plt.fill_between(time, 0, 1, where=y[:, 0]==1, color='red', alpha=0.3, transform=plt.gca().get_xaxis_transform(), label='In Clot')
         plt.xlabel('Time [samples]')
         plt.ylabel('Force [mN]')
-        plt.title('Force Sensor Signal with In-Clot Regions')
+        if label:
+            plt.title('Force Sensor Signal with In-Clot Regions')
+        else:
+            plt.title('Force Sensor Signal')
+        plt.legend()
+        plt.show()
+
+    def plot_bandpower(self, idx):
+        import matplotlib.pyplot as plt
+
+        x, masks, y = self.samples[idx]
+        time = np.arange(x.shape[0])
+
+        # Assuming bandpower features are after the force sensor in x
+        if x.shape[1] < 2:
+            print("No bandpower features available in this sample.")
+            return
+        bandpower_start_idx = 1  # since force sensor is at index 0
+        bandpower_end_idx = x.shape[1]
+
+        plt.figure(figsize=(12, 6))
+        for i in range(bandpower_start_idx, bandpower_end_idx):
+            plt.plot(time, x[:, i], label=f'Bandpower Feature {i - bandpower_start_idx + 1}')
+        plt.xlabel('Time [samples]')
+        plt.ylabel('Bandpower')
+        plt.title('Bandpower Features Over Time')
         plt.legend()
         plt.show()
 
@@ -382,3 +413,31 @@ class SensorDataset(Dataset):
 
         plt.tight_layout()
         plt.show()
+
+    def get_baseline_scores(self, test_dataset):
+        # baseline score are defined as predicting the mean start sample index across the dataset
+        total_start_indices = []
+        total_end_indices = []
+        for x, masks, y in self.samples:
+            y = y[:, 0]
+            transitions = np.diff(y.astype(int))
+            start_indices = np.where(transitions == 1)[0]
+            end_indices = np.where(transitions == -1)[0]
+            if len(start_indices) > 0:
+                total_start_indices.append(start_indices[0])
+            if len(end_indices) > 0:
+                total_end_indices.append(end_indices[0])
+        mean_start_sample_idx = int(np.mean(total_start_indices))
+        mean_end_sample_idx = int(np.mean(total_end_indices))
+
+        
+        return evaluate_dummy_model(
+            test_loader=torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False),
+            start_idx=mean_start_sample_idx,
+            end_idx=mean_end_sample_idx,
+            downsampling_freq=test_dataset.downsampling_freq,
+            save_folder=None,
+            threshold=0.9
+        )
+
+

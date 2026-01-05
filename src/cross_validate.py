@@ -48,7 +48,7 @@ def cross_validate(data_cfg, fit_cfg, model_cfg, search_space, log_names):
         print(f"\n===== Testing hyperparameters: {hparams} =====")
 
         fold_metrics = run_kfold_cv(
-            hparams, train_log_names, K=5,
+            hparams, train_log_names, K=3,
             data_cfg=data_cfg, fit_cfg=fit_cfg, model_cfg=model_cfg,
             device=device, torch_generator=torch_generator
         )
@@ -137,7 +137,8 @@ def run_kfold_cv(hparams, train_log_names, K, data_cfg, fit_cfg, model_cfg, devi
             downsampling_freq=data_cfg["downsampling_freq"],
             threshold=fit_cfg["threshold"],
             log=False,
-            test_loader=val_loader
+            test_loader=val_loader,
+            patience=hparams.get("patience", None)
         )
 
         val_loss, val_acc, val_prec, val_rec, val_f1, start_accuracies, end_accuracies = evaluate_gru_model(
